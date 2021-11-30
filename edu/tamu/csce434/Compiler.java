@@ -21,7 +21,7 @@ public class Compiler
 	
 	// emulated memory
 	static final int MemSize = 10000; // bytes in memory (divisible by 4)
-	static int M[] = new int [MemSize/4];
+	static int M[] = new int [MemSize/4 - 1];
 	
 	private class Result 
 	{

@@ -1,0 +1,36 @@
+main 
+array [3] foo,boo;
+var a,b,c;
+
+procedure output()
+var i;
+{
+let i <- 0;
+while i < a do
+        let i <- i+1; 
+        call outputnum(foo[i-1]);
+od;
+call outputnewline;
+};
+
+{
+    let a <- 3;
+    let foo[0] <- 0;
+    let c <- 1;
+    while foo[2*a-6] < a do
+        let b <- foo[2*a-6];
+        let boo[1] <- b;
+        while boo[1] < 2 do
+            let foo[boo[c]] <- b;             
+            let boo[c] <- boo[c] + 1;               
+        od;
+        let b <- b+1;
+        let foo[2*a-6] <- b;
+    od;
+    call outputnum(a);
+    call outputnum(c);
+    let a <- foo[2*a-6];
+    call outputnum(a);
+    call outputnewline();
+    call output();
+}.

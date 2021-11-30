@@ -56,7 +56,7 @@ public class DLX {
 	public static void load(int program[]) {
 		LoadColors();
 		int i;
-		for (i = 0; i < program.length; i++) {
+		for (i = 0; i < program.length - 1; i++) {
 			print(i, program[i]);
 			M[i] = program[i];
 		}
