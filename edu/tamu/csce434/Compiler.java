@@ -1,1031 +1,1204 @@
 package edu.tamu.csce434;
-import java.util.List;
-import java.util.ArrayList; 
+
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.util.Map;
+import java.util.Vector;
 
 public class Compiler 
 {
-	private edu.tamu.csce434.Scanner scanner;
+	//variables that define my compiler
+	int buf[] = new int[2500];
 	
-	int buf[] = new int[DLX.MemSize/4 - 1];		
-	List<Integer> bufList = new ArrayList<Integer>(); 
-	int R[] = new int[32]; // register array
-	void freeRegister(int i)
+	static int R[] = new int [32];
+	static int PC, op, a, b, c, format;
+
+	//For easy reference
+	static int FP = 28;
+	static int SP = 29;
+	static int DP = 30;
+	static int RETURN = 31;
+	
+	// emulated memory
+	static final int MemSize = 10000; // bytes in memory (divisible by 4)
+	static int M[] = new int [MemSize/4];
+	
+	private class Result 
 	{
-		R[i] = 0;
+		String kind;
+		String scope;
+		int address;
+		int regnum;
+		int fixuplocation;
+		int value;
 	}
-	int mostRecentlyUsedReg;
-	int bufferPointer;
-	private int token;
-	int funcCounter;
-	int numofGlobalVars;
-	int memTracker;
+	
+	private java.util.HashMap< String, Vector<Array>> ArrayVariables = new java.util.HashMap< String, Vector<Array>>();
+	
+	private class Array 
+	{
+		String name;
+		Vector<Integer> size;
+		int address;
+	}
+	
+	private edu.tamu.csce434.Scanner scanner;
 
-	int BA = 31;
-	int FP = 28;
-	int SP = 29;
-
-	java.util.Map< String, Result > varMap;
-
-	java.util.Map< String, Function > functionMap;
-
-	// Constructor of your Compiler
+	int inputNumber;
+	
+	private java.util.HashMap< Integer, String > tokenMap = new java.util.HashMap< Integer, String >();
+	private java.util.HashMap< String, Result > identMap = new java.util.HashMap < String, Result >();
+	private java.util.HashMap< String, Integer > ValidFuncNames = new java.util.HashMap < String, Integer >();
+	
+	// String holds the name of the Function, the vector of Results hold the name of the variables
+	private java.util.HashMap< String, java.util.HashMap< String, Result >> FunctionLocals = new java.util.HashMap< String, java.util.HashMap< String, Result >>();
+	private java.util.HashMap< String, java.util.HashMap< String, Result >> FunctionArguments = new java.util.HashMap< String, java.util.HashMap< String, Result >>();
+	private String functionName;
+	private boolean inFunction = false;
+	private Result ReturnRegister = new Result();
+	
+	private Vector<String> preDefIdents = new Vector<String>();
+	
+	// Constructor for the compiler
 	public Compiler(String args)
 	{
+		
 		scanner = new Scanner(args);
-		R[0] = 0;
-		for (int i = 1; i < 27; i++)
+		
+		// fill the tokenMap with the string values from scanner
+		tokenMap.put(  0, "error");
+		tokenMap.put(  1, "times");
+		tokenMap.put(  2, "div");
+        tokenMap.put( 11, "plus");
+        tokenMap.put( 12, "minus");
+        tokenMap.put( 20, "eql");
+        tokenMap.put( 21, "neq");
+        tokenMap.put( 22, "lss");
+        tokenMap.put( 23, "geq");
+        tokenMap.put( 24, "leq");
+        tokenMap.put( 25, "gtr");
+        tokenMap.put( 30, "period");
+        tokenMap.put( 31, "comma");
+        tokenMap.put( 32, "openbracket");
+        tokenMap.put( 34, "closebracket");
+        tokenMap.put( 35, "closeparen");
+        tokenMap.put( 40, "becomes");
+        tokenMap.put( 41, "then");
+        tokenMap.put( 42, "do");
+        tokenMap.put( 50, "openparen");
+        tokenMap.put( 60, "number");
+        tokenMap.put( 61, "ident");
+        tokenMap.put( 70, "semicolon");
+        tokenMap.put( 77, "let");
+        tokenMap.put( 80, "end");
+        tokenMap.put( 81, "od");
+        tokenMap.put( 82, "fi");
+        tokenMap.put( 90, "else");
+        tokenMap.put(100, "call");
+        tokenMap.put(101, "if");
+        tokenMap.put(102, "while");
+        tokenMap.put(103, "return");
+        tokenMap.put(110, "var");
+        tokenMap.put(111, "arr");
+        tokenMap.put(112, "function");
+        tokenMap.put(113, "procedure");
+        tokenMap.put(150, "begin");
+        tokenMap.put(200, "main");
+        tokenMap.put(255, "eof");
+        
+        //these can be overwritten by a user defined identifier 
+        //you can call these like functions
+        preDefIdents.add("inputnum");
+        preDefIdents.add("outputnum");
+        preDefIdents.add("outputnewline");
+		
+        //creating the initial values for the compiler
+        for (int i = 0; i < 32; i++) { R[i] = 0; };
+		PC = 0; 
+		R[DP] = MemSize - 1;
+		ReturnRegister.regnum = 27;
+		ReturnRegister.kind = "reg";
+        
+	}
+	
+	/* computing different variations of registers with immediate
+		op + 16 is the immediate version of each operation
+	 	immediate and register can come in any order, just use normal o */
+	private void compute (int op, Result result, Result x, Result y) {
+		if (x.kind == "const" && y.kind == "const") {
+			Load(x);
+			buf[PC++] = DLX.assemble(op + 16, result.regnum, x.regnum, y.value);
+		}
+		else if (x.kind == "const" && (y.kind == "reg"||y.kind == "arr")) {
+			Load(x);
+			buf[PC++] = DLX.assemble(op, x.regnum, x.regnum, y.regnum);
+		}
+		else if ((x.kind == "reg"||x.kind == "arr") && y.kind == "const") {
+			buf[PC++] = DLX.assemble(op + 16, result.regnum, x.regnum, y.value);
+		}
+		else {	
+			buf[PC++] = DLX.assemble(op, result.regnum, x.regnum, y.regnum);
+		}
+		result.kind = "reg";
+		return;
+	}
+	
+	//Load values onto the stack
+	private void Store(Result x) {
+		if(x.scope == functionName  && x.scope != "main")
+			buf[PC++] = DLX.assemble(DLX.STW, x.regnum, FP, x.address);
+		else
+			buf[PC++] = DLX.assemble(DLX.STW, x.regnum, DP, x.address);
+	}
+	
+	private Result Load(Result x) {
+		
+		if(x.kind == "reg") {
+			AllocateReg(x);
+			if(x.scope == functionName && x.scope != "main")
+				buf[PC++] = DLX.assemble(DLX.LDW, x.regnum, FP, x.address);
+			else
+				buf[PC++] = DLX.assemble(DLX.LDW, x.regnum, DP, x.address);
+		}
+		else if (x.kind == "const") {
+			if (x.value == 0) {
+				x.regnum = 0;
+				x.kind = "reg";
+			}
+			else {
+				AllocateReg(x);
+				buf[PC++] = DLX.assemble(DLX.ADDI, x.regnum, 0, x.value);
+			}
+		}
+		return x;
+	}
+	
+	//Checking for an open register it to our value
+	private int AllocateReg(Result x) {
+		x.kind = "reg";
+		
+		for (int i=1; i<27; i++) {
+			if (R[i] == 0) {
+				R[i] = 1;
+				x.regnum = i;
+				return i;
+			}
+		}
+		return 0;
+	}
+	
+	private void DeallocateReg(Result x) {
+		R[x.regnum] = 0;
+		return;
+	}
+	
+	// Use this function to print errors, i is symbol/token value
+	private void printError(int i) 
+	{
+		System.out.println("Unexpected token error: " + i);
+	}
+	
+	private boolean peek(String checkVar) {
+		if (stringCompare(checkVar, tokenMap.get(scanner.sym)))
+			return true;
+		return false;
+	}
+
+	private int GetValue(int type) {
+		//get the actual value the corresponds to that data type
+		if(type == 60) //number
+			return scanner.val;
+		else if(type == 61) //ident
+			return identMap.get(scanner.Id2String(scanner.id)).value;
+		return type;
+	}
+	
+	private boolean stringCompare(String s1, String s2) {
+		if (s1.length() != s2.length())
+			return false;
+		for (int i=0; i<s1.length(); i++) {
+			if (s1.charAt(i) != s2.charAt(i))
+				return false;
+		}
+		return true;
+	}
+	
+	// Use this function to accept a Token and and to get the next Token from the Scanner
+	private boolean accept(String s) 
+	{
+		//System.out.println(tokenMap.get(scanner.sym) + " " + s);
+		if(stringCompare(tokenMap.get(scanner.sym), s)) {
+			return true;
+		}
+		return false;
+	}
+
+	// Use this function whenever your program needs to expect a specific token
+	private void expect(String s) 
+	{
+		if (accept(s)) {
+			scanner.Next();
+			return;
+		}
+		System.out.print("Character we exected to get: " + s + ", ");
+		printError(scanner.sym);
+	
+	}
+	
+	private int CheckIfElement (String function, String elemName) {
+		if(ArrayVariables.containsKey(function)) {
+			for (int i=0; i<ArrayVariables.get(function).size(); i++) {
+				if (stringCompare(ArrayVariables.get(function).get(i).name, elemName)) {
+					return i;
+				}
+			}
+		}
+		return -1;
+	}
+	
+	private String CheckArrayScope(String arrName) {
+		if (ArrayVariables.size() != 0 && functionName != "main") {
+			if (ArrayVariables.containsKey(functionName)) {
+				if(CheckIfElement(functionName, arrName) != -1) {
+					return functionName;
+				}
+			}
+		}
+		
+		return "main"; 
+	}
+	
+	String CurrentArrayName;
+	
+	private Result IDENT() {
+		Result result = new Result();
+		int s = scanner.sym; 
+
+		if ( scanner.Id2String(scanner.id) != null ) {
+				
+			//Checking arguments
+			if(FunctionArguments.size() != 0 && functionName != "main") {
+				if (FunctionArguments.containsKey(functionName)) {	
+					if (FunctionArguments.get(functionName).containsKey(scanner.Id2String(scanner.id))) {
+						//get the most recent set of arguments, then find the Result related to the Name of the string
+						result = FunctionArguments.get(functionName).get(scanner.Id2String(scanner.id));
+						result.kind = "reg";
+						result.scope = functionName;
+						scanner.Next();
+						return result;
+					}
+				}
+			}	
+			
+			//First check the Local variable map
+			if(FunctionLocals.size() != 0 && functionName != "main") {
+				if (FunctionLocals.containsKey(functionName)) {
+					if (FunctionLocals.get(functionName).containsKey(scanner.Id2String(scanner.id))) {
+						//get the most recent set of arguments, then find the Result related to the Name of the string
+						result = FunctionLocals.get(functionName).get(scanner.Id2String(scanner.id));
+						result.kind = "reg";
+						result.scope = functionName;
+						scanner.Next();
+						return result;
+					}
+				}
+			}
+			
+			//Then check global variable map
+			if (identMap.containsKey(scanner.Id2String(scanner.id))) {
+				result = identMap.get(scanner.Id2String(scanner.id));
+				result.kind = "reg";
+				result.scope = "main";
+				scanner.Next();
+				return result;
+			}		
+			
+			if (ArrayVariables.size() != 0 && functionName != "main") {
+				if (ArrayVariables.containsKey(functionName)) {
+					int index;
+					if((index = CheckIfElement(functionName, scanner.Id2String(scanner.id))) != -1) {
+						result.address = ArrayVariables.get(functionName).get(index).address;
+						CurrentArrayName = ArrayVariables.get(functionName).get(index).name;
+						result.kind = "arr";
+						result.scope = functionName;
+						scanner.Next();
+						return result;
+					}
+				}
+			}	
+			
+			if (ArrayVariables.size() != 0) {
+				if (ArrayVariables.containsKey("main")) {
+					int index;
+					if((index = CheckIfElement("main", scanner.Id2String(scanner.id))) != -1) {
+						result.address = ArrayVariables.get("main").get(index).address;
+						CurrentArrayName = ArrayVariables.get("main").get(index).name;
+						result.kind = "arr";
+						result.scope = "main";
+						scanner.Next();
+						return result;
+					}
+				}
+			}
+		}
+		scanner.Next();
+		return result;
+		
+	}
+	
+	private Result IndexRegister = new Result();
+	
+	private Result DESIGNATOR() {
+		//fixes problems with same ident in the same line
+		//Using one memory location for variable is bad -> new
+		Result newLocation = new Result();
+		Result result = IDENT();
+		newLocation.kind = "reg";
+		newLocation.regnum = result.regnum;
+		newLocation.address = result.address;
+		newLocation.scope = result.scope;
+		
+		// do this is the ident returns a variable
+		if(!peek("openbracket")) {
+			Load(newLocation);
+			return newLocation;
+		}
+		
+		Vector<Result> findValues = new Vector<Result>();
+		
+		while (peek("openbracket")) {
+			
+			expect("openbracket");
+			
+			Result value = new Result();
+			value = EXPRESSION();
+			if( value.kind == "const" ) {
+				AllocateReg(value);
+				buf[PC++] = DLX.assemble(DLX.ADDI, value.regnum, 0, value.value);
+			}
+			findValues.add(value);
+			
+			expect("closebracket");
+		}
+		
+		//Load the final address into a register to be used as a dynamic register, not const.
+		IndexRegister = findValues.elementAt(0);
+		int total = 0;
+		int multiplier = 1;
+		String arrayScope = CheckArrayScope(CurrentArrayName);
+		int index = CheckIfElement(arrayScope, CurrentArrayName);
+		
+		
+		buf[PC++] = DLX.assemble(DLX.MULI, IndexRegister.regnum, IndexRegister.regnum, (multiplier) * 4);
+		buf[PC++] = DLX.assemble(DLX.ADDI, IndexRegister.regnum, IndexRegister.regnum, ArrayVariables.get(arrayScope).get(index).address);
+		total += findValues.elementAt(0).value * multiplier;
+		multiplier *= ArrayVariables.get(arrayScope).get(index).size.elementAt(0);
+		
+		for (int j=1; j<findValues.size(); j++) 
 		{
-			R[i] = 0;
-		} // populate the registers
-		R[30] = DLX.MemSize - 1;
-		bufferPointer = 0; mostRecentlyUsedReg = 1;
-		varMap = new java.util.HashMap< String, Result >();
-		functionMap = new java.util.HashMap< String, Function>();
-		memTracker = 4;
-		funcCounter = 0;
-		numofGlobalVars = 0;
+			Result holdValue = findValues.elementAt(j);
+			// if we have sizes = [3][3][3]
+			// if we want to find [1][2][1]
+			// we calculate 1*(1) + 2*(3) + 1*(9) = 19 
+			// We only care that it is unique and within the range of (0-26).
+			// multiplier get the previous size of array multiplied to it.
+			buf[PC++] = DLX.assemble(DLX.MULI, holdValue.regnum, holdValue.regnum, (multiplier) * 4);
+			buf[PC++] = DLX.assemble(DLX.ADD, IndexRegister.regnum, IndexRegister.regnum, holdValue.regnum);
+			total += findValues.elementAt(j).value * multiplier;
+			multiplier *= ArrayVariables.get(arrayScope).get(index).size.elementAt(j);
+			DeallocateReg(holdValue);
+
+		}
+		
+		
+		
+		newLocation.address = ArrayVariables.get(arrayScope).get(index).address + (4 * total);
+		AllocateReg(newLocation);
+		newLocation.kind = "arr";
+		
+		if(arrayScope != "main")
+			buf[PC++] = DLX.assemble(DLX.LDX, newLocation.regnum, FP, IndexRegister.regnum);
+		else {
+			buf[PC++] = DLX.assemble(DLX.LDX, newLocation.regnum, DP, IndexRegister.regnum);
+		}
+		return newLocation;
+		
+	}
+	
+	
+	private Result FACTOR() {
+		Result result = new Result();
+		int ret = scanner.sym;
+
+		if (tokenMap.get(ret) == "ident") {
+			result = DESIGNATOR();
+			return result;
+		}
+		else if (tokenMap.get(ret) == "number") {
+			result.kind = "const";
+			result.value = GetValue(ret);
+		}
+		else if (tokenMap.get(ret) == "openparen") {
+			scanner.Next();
+			result = EXPRESSION();
+			expect("closeparen");
+			return result;	
+		}	
+		else if (tokenMap.get(ret) == "call") {
+			result = FUNCCALL();
+			return result;
+		}
+		
+		scanner.Next();
+		return result;
+	}
+	
+	private Result TERM() {
+		Result factor = new Result();
+		factor = FACTOR();
+		
+		String s = tokenMap.get(scanner.sym);
+		if(s != "times" && s != "div") {
+			return factor;
+		}
+		
+		Result factor2 = new Result();
+		while(s == "times" || s == "div") {
+			
+			scanner.Next();	
+			factor2 = FACTOR();	
+			
+			if (s == "times") {
+				if(factor.kind == "const" && factor2.kind == "const") 
+					factor.value *= factor2.value;
+					//multiply the current factor with the incoming factor
+				else {
+					compute(DLX.MUL, factor, factor, factor2);
+				}
+			}
+			else {
+				if(factor.kind == "const" && factor2.kind == "const") 
+					factor.value /= factor2.value;
+				//divides without creating excess registers
+				else {
+					compute(DLX.DIV, factor, factor, factor2);
+				}
+					
+			}
+			if (factor2.kind == "reg")
+				DeallocateReg(factor2);
+			
+			s = tokenMap.get(scanner.sym);
+		}
+		return factor;
+	}
+	
+	private Result EXPRESSION() {
+		Result term = new Result();
+		term = TERM();
+		
+		String s = tokenMap.get(scanner.sym);
+		if(s != "plus" && s != "minus") {
+			return term;
+		}
+		
+		while(s == "plus" || s == "minus") {
+			Result term2 = new Result();
+			scanner.Next();
+			
+			term2 = TERM();
+			
+			if (s == "plus") {
+				if(term.kind == "const" && term2.kind == "const")
+					term.value += term2.value;
+				else {
+					compute(DLX.ADD, term, term, term2);
+				}
+			}
+			else {
+				if(term.kind == "const" && term2.kind == "const")
+					term.value -= term2.value;
+				else {
+					compute(DLX.SUB, term, term, term2);
+				}
+						
+			}
+			if (term2.kind == "reg")
+				DeallocateReg(term2);
+			
+			s = tokenMap.get(scanner.sym);
+		}
+		return term;
+	}
+	
+	private Result RELATION() {
+		
+		//find values of a and b in relationship
+		Result A = EXPRESSION();
+		String relOP = tokenMap.get(scanner.sym);
+		scanner.Next();
+		Result B = EXPRESSION();
+		
+		//create instruction that subtracts the two to get the resulting value
+		Result relation = new Result();
+		AllocateReg(relation);
+		relation.value = A.value - B.value;
+		compute(DLX.SUB, relation, A, B);
+		
+		if(A.kind == "reg")
+			DeallocateReg(A);
+		if(B.kind == "reg")
+			DeallocateReg(B);
+		
+		// create branch instruction based in type relOP and resulting value
+		relation.fixuplocation = PC;
+		
+		// these instructions all have incorrect Branch locations -> opposite branching instruction
+		// We want to branch when our relop has an incorrect value
+		if(relOP == "eql") {
+			buf[PC++] = DLX.assemble(DLX.BNE, relation.regnum, 0);
+		}
+		else if(relOP == "neq") {
+			buf[PC++] = DLX.assemble(DLX.BEQ, relation.regnum, 0);
+		}
+		else if(relOP == "lss") {
+			buf[PC++] = DLX.assemble(DLX.BGE, relation.regnum, 0);
+		}
+		else if(relOP == "leq") { //branch Greater than
+			buf[PC++] = DLX.assemble(DLX.BGT, relation.regnum, 0);
+		}		
+		else if(relOP == "gtr") {
+			buf[PC++] = DLX.assemble(DLX.BLE, relation.regnum, 0);
+		}
+		else if(relOP == "geq") {
+			buf[PC++] = DLX.assemble(DLX.BLT, relation.regnum, 0);
+		}
+		return relation;
+	}
+	
+	private void ASSIGNMENT() {
+		
+		expect("let");
+		Result result = DESIGNATOR();
+		
+		Result IndexRegisterhold = new Result(); //save IndexRegister returnValue
+		if(result.kind == "arr") {
+			IndexRegisterhold.regnum = IndexRegister.regnum;
+		}
+		
+		expect("becomes");
+		
+		Result setValue = EXPRESSION();
+		
+		//If we finish the function without a return
+		if(setValue == null) {
+			Result noReturn = new Result();
+			noReturn.kind ="const";
+			noReturn.value = 0;
+			setValue = noReturn;
+		}
+		
+		if (setValue.kind == "const") {
+			Load(setValue);
+		}
+		
+		int identaddress = result.address;
+		setValue.address = identaddress;
+		
+		//store the result into memory
+		if (result.kind == "arr") {
+			if(CheckArrayScope(CurrentArrayName) != "main")
+				buf[PC++] = DLX.assemble(DLX.STX, setValue.regnum, FP, IndexRegisterhold.regnum);
+			else
+				buf[PC++] = DLX.assemble(DLX.STX, setValue.regnum, DP, IndexRegisterhold.regnum);
+			
+			DeallocateReg(IndexRegisterhold);
+			DeallocateReg(IndexRegister);
+		}
+		else { // regular identifier
+			DeallocateReg(result);
+			result.regnum = setValue.regnum;
+			result.value = setValue.value;
+			Store(result);
+		}
+		
+		DeallocateReg(result);
+		DeallocateReg(setValue);
+		
+		return;
+	}
+	
+	private Result FUNCCALL() {
+		expect("call");
+		
+		Result holdInput = new Result();
+		
+		//inputnum()
+		if(stringCompare(scanner.Id2String(scanner.id), preDefIdents.get(0))) { 
+
+			holdInput.kind = "reg";
+			AllocateReg(holdInput);
+			
+			scanner.Next();
+			if(tokenMap.get(scanner.sym) == "openparen") {
+				scanner.Next();
+				expect("closeparen");
+				buf[PC++] = DLX.assemble(DLX.RDI, holdInput.regnum);
+			}
+			
+			
+			return holdInput;
+		}
+		
+		//outputnum(x)
+		else if(stringCompare(scanner.Id2String(scanner.id), preDefIdents.get(1))) { 
+			scanner.Next();
+			expect("openparen");
+			holdInput = EXPRESSION();
+			if (holdInput.kind == "const")
+				Load(holdInput);
+			expect("closeparen");
+			//System.out.print(holdInput.value);
+			buf[PC++] = DLX.assemble(DLX.WRD, holdInput.regnum);
+			DeallocateReg(holdInput);
+			DeallocateReg(IndexRegister);
+			return holdInput;
+		}
+		
+		//outputnewline()
+		else if(stringCompare(scanner.Id2String(scanner.id), preDefIdents.get(2))) { 
+			scanner.Next();
+			if(peek("openparen")) {
+				expect("openparen");
+				expect("closeparen");
+			}
+			//System.out.print('\n');
+			buf[PC++] = DLX.assemble(DLX.WRL);
+			return holdInput;
+		}
+		//call function
+		else {
+			String funcName = new String();
+			for (int i=0; i<ValidFuncNames.size(); i++) {
+				funcName = scanner.Id2String(scanner.id);
+				if(ValidFuncNames.containsKey(funcName)) {
+					
+					Vector<Integer> StoredRegNums = new Vector<Integer>();
+					//Storing the Registers
+					for (int j=1; j<27; j++) {
+						if (R[j] != 0) {
+							StoredRegNums.add(j);
+							buf[PC++] = DLX.assemble(DLX.PSH, j ,SP, -4);
+							R[j] = 0; //deallocate register
+						}
+					}
+					
+					// Start storing the Function Parameters
+					scanner.Next();
+					if(peek("openparen")) {
+						scanner.Next();
+						
+						if(!peek("closeparen")) {
+							
+							holdInput = EXPRESSION();
+							if (holdInput.kind == "const")
+								Load(holdInput);
+
+							buf[PC++] = DLX.assemble(DLX.PSH, holdInput.regnum, SP, -4);
+							DeallocateReg(holdInput);
+						
+						}
+						while(!peek("closeparen")) {
+							Result holdInput2 = new Result();
+							
+							expect("comma");
+							holdInput2 = EXPRESSION();
+							if (holdInput2.kind == "const")
+								Load(holdInput2);
+							buf[PC++] = DLX.assemble(DLX.PSH, holdInput2.regnum, SP, -4);
+							DeallocateReg(holdInput2);
+						}
+						
+						
+						expect("closeparen");
+					}
+					
+					buf[PC++] = DLX.assemble(DLX.JSR, ValidFuncNames.get(funcName)*4);
+					
+					//Restoring Registers
+					for (int j=26; j>0; j--) {
+						
+						if (StoredRegNums.size() == 0)
+							break;
+						if (j == StoredRegNums.lastElement()) {
+							StoredRegNums.remove(StoredRegNums.size()-1);
+							buf[PC++] = DLX.assemble(DLX.POP, j ,SP, 4);
+							R[j] = 1; //reallocate register
+						}
+					}
+					Result StoreReturn = new Result();
+					AllocateReg(StoreReturn);
+					buf[PC++] = DLX.assemble(DLX.ADDI, StoreReturn.regnum, ReturnRegister.regnum, 0);
+					
+					
+					return StoreReturn;
+				}
+			}
+		}	
+		scanner.Error("Not a valid Ident");
+		return ReturnRegister;
+	}
+
+	private void Fixup( int fixuplocation ) {
+		// since I put 0 in the return location, I can just add the fixup location to the end
+		// of the already built instruction
+		buf[fixuplocation] += PC - fixuplocation;
+	}
+	
+	private void UncondBraFwd( Result branchLoc ) {
+		// this is a broken branch forward, will need to be fixed later
+		branchLoc.fixuplocation = PC;
+		buf[PC++] = DLX.assemble(DLX.BEQ, 0, 0);
+	}
+	
+	private void UncondBraBack( int fixuplocation ) {
+		buf[PC++] = DLX.assemble(DLX.BEQ, 0, fixuplocation-PC);
+	}
+	
+	private void IFSTATEMENT() {
+		expect("if");
+		//creating the two initial jump instructions and setting fixuplocation
+		Result negJump;
+		negJump = RELATION();
+		
+		expect("then");
+		
+		Result follow = new Result();
+		
+		STATSEQUENCE();
+		
+		if(peek("else")) {
+			scanner.Next();
+			UncondBraFwd(follow);
+			
+			negJump.address = PC;
+			Fixup(negJump.fixuplocation);
+			STATSEQUENCE();
+			
+			Fixup(follow.fixuplocation);
+			expect("fi");
+		}
+		else {
+			negJump.address = PC;
+			Fixup(negJump.fixuplocation);
+			expect("fi");
+		}
+		DeallocateReg(negJump);
+		return;
+	}
+	
+	private void WHILESTMT() {
+		
+		expect("while");
+		
+		int loopLocation = PC+1;
+		Result negJump = RELATION();
+		
+		expect("do");
+		STATSEQUENCE();
+		expect("od");
+		
+		UncondBraBack(loopLocation);
+		Fixup(negJump.fixuplocation);
+		DeallocateReg(negJump);
+	}
+	
+	private Result RETURNSTMT() {
+			
+		Result returnValue = new Result();
+		expect("return");
+		
+		if( !peek("semicolon") && !peek("else") && !peek("fi") && !peek("end") && !peek("od")) {
+			
+			returnValue = EXPRESSION();
+			
+			if(returnValue.regnum != 27) {
+				if (returnValue.kind == "const")
+					buf[PC++] = DLX.assemble(DLX.ADDI, 27, 0, returnValue.value);
+				else
+					buf[PC++] = DLX.assemble(DLX.ADDI, 27, returnValue.regnum, 0);
+			}
+		}
+		epilogue();
+		
+		return returnValue;
+	}
+	
+	private void STATEMENT() {
+		String statementType = tokenMap.get(scanner.sym);
+		if(statementType == "let")
+			ASSIGNMENT();
+		else if(statementType == "call") {
+			Result faultyReturn = FUNCCALL();
+			DeallocateReg(faultyReturn);
+		}
+		else if(statementType == "if")
+			IFSTATEMENT();
+		else if(statementType == "while")
+			WHILESTMT();
+		else if (statementType == "return")
+			RETURNSTMT();
+		else
+			scanner.Error("Invalid Statement Option");
+		return;
+	}
+	
+	private void STATSEQUENCE() {
+		String statementType = tokenMap.get(scanner.sym);
+		if(statementType == "let" || statementType == "call" || statementType == "if" || statementType == "while" || statementType == "return")
+			STATEMENT();
+		else	
+			scanner.Error("Invalid Statement Option");
+		while(tokenMap.get(scanner.sym) == "semicolon") {
+			scanner.Next();
+			statementType = tokenMap.get(scanner.sym);
+			if(statementType == "let" || statementType == "call" || statementType == "if" || statementType == "while" || statementType == "return") {
+				STATEMENT();}
+			else	
+				break;
+		}
+		return;
+	}
+	
+	
+	private int GetTotalArraySize() {
+
+		if(arraySizes.size() == 0)
+			return 0;
+		
+		int length = 1;
+		for (int i=0 ; i<arraySizes.size(); i++) {
+			length *= arraySizes.get(i);
+		}
+		return (length * 4);
+	}
+	
+	private Vector<Integer> arraySizes;
+	
+	private String TYPEDECL() {
+		
+		if (peek("var")) {
+			// we expect that there is a variable not an array
+			expect("var");
+			return "var";
+		}
+		
+		else {
+			// we must expect an array if not a var
+			expect("arr");
+			
+			arraySizes = new Vector<Integer>();
+			do {
+				expect("openbracket");
+				
+				/* we must expect this is a number, we must check
+				beforehand, the get the number from FACTOR (the only location to get number) */
+				
+				int number;
+				if (tokenMap.get(scanner.sym) == "number") {
+					number = GetValue(scanner.sym);
+					arraySizes.add(number);
+				}
+				else
+					printError(scanner.sym);
+				
+				scanner.Next();
+				
+				expect("closebracket");
+			} while (peek("openbracket"));
+			
+			return "arr";
+		} 
+	}
+	
+	private int CalcVarAddr() {
+		int numEntries = 1;
+		if (inFunction) 
+		{
+			// check every every array in the table
+			if (ArrayVariables.containsKey(functionName)) {
+				for(int i=0; i<ArrayVariables.get(functionName).size(); i++) {
+					// for each array get the number of variables(size)
+					for(int j=0; j<ArrayVariables.get(functionName).get(i).size.size(); j++) {
+						//this is looking through the entire array and storing space for each entry
+						numEntries *= ArrayVariables.get(functionName).get(i).size.get(j);
+					}
+				}
+			}
+			else {
+				numEntries = 0;
+			}
+			
+			if (FunctionLocals.containsKey(functionName))  {
+				numEntries += FunctionLocals.get(functionName).size();
+			}
+			// check every every array in the table
+
+		}
+		else 
+		{
+			
+			// check every every array in the table
+			if (ArrayVariables.containsKey(functionName)) {
+				for(int i=0; i<ArrayVariables.get(functionName).size(); i++) {
+					// for each array get the number of variables(size)
+					for(int j=0; j<ArrayVariables.get(functionName).get(i).size.size(); j++) {
+						//this is looking through the entire array and storing space for each entry
+						numEntries *= ArrayVariables.get(functionName).get(i).size.get(j);
+					}
+				}
+			}
+			else {
+				numEntries = 0;
+			}
+			numEntries += identMap.size(); 
+			
+		}
+		return -((numEntries) * 4);
+	}
+	
+	
+	private void VARDECL() {
+		
+		String type = TYPEDECL();
+		
+		if( type == "var" ) {
+			if( inFunction ) {
+				java.util.HashMap< String, Result > tempIdents = new java.util.HashMap< String, Result >();
+				Result ident = new Result();
+				
+				tempIdents.put(scanner.Id2String(scanner.id), ident);
+				ident.address = CalcVarAddr() - (tempIdents.size()*4);
+				
+				scanner.Next();
+				
+				while(peek("comma")) {
+					Result ident2 = new Result();
+					scanner.Next();
+					
+					tempIdents.put(scanner.Id2String(scanner.id), ident2);
+					ident2.address = CalcVarAddr() - (tempIdents.size()*4);
+					
+					scanner.Next();
+				}
+				if (FunctionLocals.containsKey(functionName)) {
+					FunctionLocals.get(functionName).putAll(tempIdents);
+				}
+				else
+					FunctionLocals.put(functionName, tempIdents);
+			}
+			
+			else {
+				Result globals = new Result();
+				
+				identMap.put(scanner.Id2String(scanner.id), globals);
+				globals.address = CalcVarAddr();
+				
+				scanner.Next();
+				
+				while(peek("comma")) {
+					Result globals2 = new Result();
+					scanner.Next();
+					
+					identMap.put(scanner.Id2String(scanner.id), globals2);
+					globals2.address = CalcVarAddr();
+					scanner.Next();
+				}
+			}
+		}
+		
+		else { //type = "arr" / Array value
+			
+			int lengthValues = GetTotalArraySize();
+			Vector<Array> ArrVars = new Vector<Array>();
+			Array variable = new Array();
+			
+			variable.size = arraySizes;
+			variable.name = scanner.Id2String(scanner.id);
+			ArrVars.add(variable);
+			variable.address = CalcVarAddr() - (lengthValues*ArrVars.size());
+			
+			scanner.Next();
+			
+			while(peek("comma")) {
+				Array variable2 = new Array();
+				scanner.Next();
+				
+				variable2.size = arraySizes;
+				variable2.name = scanner.Id2String(scanner.id);
+				ArrVars.add(variable2);
+				variable2.address = CalcVarAddr() - (lengthValues*ArrVars.size());
+
+				scanner.Next();
+			}
+			if (ArrayVariables.containsKey(functionName))
+				ArrayVariables.get(functionName).addAll(ArrVars);
+			else
+				ArrayVariables.put(functionName, ArrVars);
+		}
+		expect("semicolon");
+		return;
+	}
+	
+	private void prologue() {
+		//Put in our own return location and locals
+
+		buf[PC++] = DLX.assemble(DLX.PSH, RETURN, SP, -4); 
+		buf[PC++] = DLX.assemble(DLX.PSH, FP, SP, -4);
+		buf[PC++] = DLX.assemble(DLX.ADD, FP, SP, 0);
+	}
+	
+	private void epilogue() {
+		
+		//Remove all local variables and return
+		int localVarSize = -CalcVarAddr();
+		if(localVarSize != 0) {
+			buf[PC++] = DLX.assemble(DLX.ADDI, SP, SP, localVarSize);
+		}
+		
+		//Come back from jump and restore the registers
+		buf[PC++] = DLX.assemble(DLX.POP, FP, SP, 4); // store Frame Pointer
+		buf[PC++] = DLX.assemble(DLX.POP, RETURN, SP, 4); // restore return address
+		if (FunctionArguments.get(functionName).size() != 0) {
+			buf[PC++] = DLX.assemble(DLX.ADDI, SP, SP, (FunctionArguments.get(functionName).size() * 4));
+		}
+		buf[PC++] = DLX.assemble(DLX.RET, RETURN);
+	}
+	
+	private void FUNCDECL() {
+		
+		scanner.Next();
+		
+		//expect ident
+		functionName = scanner.Id2String(scanner.id);
+		ValidFuncNames.put(functionName, PC);
+		
+		scanner.Next();
+		
+		FORMALPARAM();
+		FUNCBODY();
+		
+		expect("semicolon");
+		
+		epilogue();
+	}
+	
+	private void FORMALPARAM() {
+		
+		//Storing the parameters of the function on the stack
+		java.util.HashMap< String, Result > parameters = new java.util.HashMap < String, Result >();
+		
+		//Putting the parameters on the stack right after call
+		expect("openparen");
+		Vector<String> argumentNames = new Vector<String>();
+		
+		
+		if(!peek("closeparen")) {
+			
+			argumentNames.add(scanner.Id2String(scanner.id));
+			scanner.Next();
+		}
+		
+		while(!peek("closeparen")) {
+			
+			expect("comma");
+			argumentNames.add(scanner.Id2String(scanner.id));
+			scanner.Next();
+		}
+		
+		for (int i = 1; i <= argumentNames.size(); i++) {
+			
+			Result parameter = new Result();
+			
+			//Relative to FP = order * 4 + 8
+			parameter.address = ( (argumentNames.size() - i) * 4 + 8);
+			parameter.kind = "reg";
+			parameter.scope = functionName;
+			parameters.put(argumentNames.get(i-1), parameter);
+		}
+		
+		FunctionArguments.put(functionName, parameters);
+		
+		prologue();
+		
+		expect("closeparen");
+		
+		return;
+	}
+	
+	private void FUNCBODY() {
+		
+		while (peek("var") || peek("arr")) {
+			VARDECL();
+		}
+		if (CalcVarAddr() != 0) {
+			buf[PC++] = DLX.assemble(DLX.SUBI, SP, FP, -CalcVarAddr());
+		}
+			
+		expect("begin");
+		
+		if(!peek("end")) {
+
+			STATSEQUENCE();
+		}
+		
+		expect("end");
 	}
 	
 	
 	// Implement this function to start compiling your input file
 	public int[] getProgram()  
 	{	
-		token = scanner.sym;
-		if (token != scanner.expressionMap.get("main"))
-		{
-			//its not main, output error.
-			error();
-		}
-
-		if (token == scanner.expressionMap.get("main"))
-		{
-			// check for varDec
-			scanner.Next();
-			token = scanner.sym;
-			while (token == scanner.expressionMap.get("var") || token == scanner.expressionMap.get("array"))
-			{
-				// then its a var. 
-				if (token == scanner.expressionMap.get("var")) 
-					varDec();
-				else if (token == scanner.expressionMap.get("array")) 
-					arrayDec();
-				token = scanner.sym;
-
+		expect("main");
+        
+		functionName = "main";
+		if (peek("var") || peek("arr")) { //try
+			while (peek("var") || peek("arr")) {
+				VARDECL();
 			}
+			buf[PC++] = DLX.assemble(DLX.SUBI, SP, DP, -CalcVarAddr());
 		}
+		else
+        	buf[PC++] = DLX.assemble(DLX.SUBI, SP, DP, 0);
+        
+        Result jumpForward = new Result();
+        UncondBraFwd(jumpForward);
+        
+        while(peek("function") || peek("procedure")) {
+        	inFunction = true;
+        	FUNCDECL();
+        }
+        functionName = "main";
+        
+        Fixup(jumpForward.fixuplocation);
+        inFunction = false;
+        
+        expect("begin");
+        STATSEQUENCE();
+        expect("end");
+  
+        expect("period");
+        //add eof identifier to buffer
+        buf[PC++] = DLX.assemble(DLX.RET, 0);
 
-		// at this point we should have a semicolon
-		if (token == scanner.expressionMap.get(";"))
-		{
-			scanner.Next();
-			token = scanner.sym;
-		}
-
-		// check for any functions
-		while (token == scanner.expressionMap.get("function") || token == scanner.expressionMap.get("procedure"))
-		{
-			int a = functionDefinition();
-			scanner.Next();
-			token = scanner.sym;
-			if (token == scanner.expressionMap.get(";"))
-			{
-				scanner.Next();
-				token = scanner.sym;
-			}
-			// now we should have an open {
-			if (token == scanner.expressionMap.get("{"))
-			{
-				scanner.Next();
-				token = scanner.sym;
-			}
-		}
-		// Now all the functions are defined. 
-		// Time to skip them at the start.
-		bufList.add(0, DLX.assemble(BEQ, 0, bufList.size()+1));
-		
-		// now allocate space for the fp/sp
-		bufList.add(DLX.assemble(SUBI, FP, 30, (numofGlobalVars + 2) * 4));
-		bufList.add(DLX.assemble(ADDI, SP, FP, 4));
-
-		statSequence();
-
-		pushToBuffer(DLX.assemble(RET, 0));
-
-		// stream arraylist to the buffer.
-		buf = bufList.stream().mapToInt(i -> i).toArray();
-
-		scanner.closefile();
+//        for( int i=0; i < PC; i++) {
+//        	System.out.print("(" + (i) + ")" + " " + DLX.disassemble( buf[i] ) + "\n");
+//        }
+        
+        if(tokenMap.get(scanner.sym) != "eof")
+        	scanner.Error("No EOF found.");
+        scanner.closefile();
 		
 		return buf;
 	}
-
-	private int getNextReg()
-	{
-		for (int i = 1; i < 27; i++)
-		{
-			if (R[i] == 0)
-			{
-				mostRecentlyUsedReg = i;
-				R[i] = 1;
-				return i;
-			}
-		}
-		return -1; // no free registers
-	}
-
-	private void pushToBuffer(int idx, int inst)
-	{
-		bufList.add(idx, inst);
-	}
-
-	private void pushToBuffer(int inst)
-	{
-		bufList.add(inst);
-	}
-
-	private void error()
-	{
-		System.out.println("error");
-	}
-	
-	public void varDec() 
-	{
-
-		//scanner.Next();
-		token = scanner.sym;
-		while (token != 70)
-		{
-			if (token == 61)
-			{
-				String name = scanner.Id2String(scanner.id);
-				Result r = new Result(name, -1, getNextMemLocation());
-				r.isGlobal = true;
-				numofGlobalVars++;
-				varMap.put(name, r);
-			}
-			else if (token == 31) // if its a comma, continue
-			{
-				scanner.Next();
-				token = scanner.sym;
-				continue;
-			}
-			scanner.Next();
-			token = scanner.sym;
-		}
-		scanner.Next();
-	}
-
-	public void arrayDec() 
-	{
-		scanner.Next();
-		token = scanner.sym; // open bracket. 
-		ArrayList<Integer> dims = new ArrayList<Integer>();
-		int val = 0;
-		while (scanner.sym != 70)
-		{
-			if (scanner.sym == scanner.expressionMap.get("["))
-			{
-				scanner.Next(); // get to the value 
-				val = scanner.val;
-				dims.add(val);
-				// get to the end bracket
-				scanner.Next();
-				// get the first identifier. 
-				//scanner.Next();
-			}
-			else if (scanner.sym == 31) // if its a comma, continue
-			{
-				scanner.Next();
-				token = scanner.sym;
-				continue;
-			}
-			else if (scanner.sym == 61) // then its another identifier.
-			{
-				// now get the name. 
-				//scanner.Next();
-				String name = scanner.Id2String(scanner.id);
-
-				Result r = new Result(name, -1, getNextMemLocation());
-				// allocate the memory for that size array
-				for (int i = 0; i < dims.size(); i++)
-				{
-					for (int j = 0; j < dims.get(i); j++)
-					{
-						int next = getNextMemLocation();
-						numofGlobalVars++;
-					}
-				}
-				r.isGlobal = true;
-				r.isArray = true;
-				r.dimensions = dims;
-				varMap.put(name, r);
-				token = scanner.sym;
-				scanner.Next();
-				token = scanner.sym;
-				continue;
-			}
-			scanner.Next();
-		}
-		scanner.Next();
-	}
-
-	public int statSequence()
-	{
-		int i1 = bufList.size();
-		while (scanner.sym != scanner.expressionMap.get(".") && scanner.sym != 255)
-		{
-			if (scanner.sym == scanner.expressionMap.get("let")) // if it's an assignment
-			{
-				assignment();
-				//scanner.Next();
-				continue;
-			}
-	
-			if (scanner.sym == scanner.expressionMap.get("call")) // if it's a function call
-			{
-				funcCall();
-				continue;
-			}
-	
-			if (scanner.sym == scanner.expressionMap.get("if"))
-			{
-				ifStatement();
-				scanner.Next();
-				continue;
-			}
-
-			if (scanner.sym == scanner.expressionMap.get("while"))
-			{
-				
-				whileLoop();
-				continue;
-			}
-
-			if (scanner.sym == scanner.expressionMap.get("return"))
-			{
-				//return bufList.size() - 1;
-				returnStatement();
-				continue; 
-			}
-
-			if (scanner.sym == scanner.expressionMap.get("fi") 
-				|| scanner.sym == scanner.expressionMap.get("else")
-				|| scanner.sym == scanner.expressionMap.get("od")
-				|| scanner.sym == scanner.expressionMap.get("}"))
-			{
-				return bufList.size() - i1;
-			}
-
-			if (scanner.sym == scanner.expressionMap.get(";"))
-			{
-				scanner.Next();
-				continue;
-			}
-
-			if (scanner.sym == 255)
-			{
-				break;
-			}
-
-			scanner.Next();
-		}
-		// now we are at the end of file.
-		pushToBuffer(DLX.assemble(RET, 0));
-		return bufList.size() - i1;
-	}
-
-	public void assignment()
-	{
-		scanner.Next();
-		if (scanner.sym != 61) // is not ident
-		{
-			error();
-		}
-		String myIdent = scanner.Id2String(scanner.id);
-		if (varMap.containsKey(myIdent))
-		{
-			Result r = varMap.get(myIdent);
-			int arrayIndexReg = -1;
-			scanner.Next();
-			if (r.isArray)
-			{
-				scanner.Next(); // now we are at the "["
-				// skip the "["
-				int getExpression = exp();
-				//int ret = getNextReg();
-				//pushToBuffer(DLX.assemble(ADDI, ret, getExpression, -r.address));
-				//pushToBuffer(DLX.assemble(STW, getExpression, ));
-				//arrayIndexReg = getExpression; // now this holds the memory location we need to get to. 
-				// skip the ]
-				arrayIndexReg = getExpression;
-				scanner.Next(); // skip the "]"
-			}
-
-			scanner.Next(); // skip the <- 
-			//scanner.Next();
-			int expReg = exp();
-
-			if (r.isArray)
-			{
-				// get a handle on the memory location we want to go to.
-				pushToBuffer(DLX.assemble(MULI, arrayIndexReg, arrayIndexReg, -4));
-				pushToBuffer(DLX.assemble(ADDI, arrayIndexReg, arrayIndexReg, r.address));
-				pushToBuffer(DLX.assemble(STX, expReg, 30, arrayIndexReg));
-				freeRegister(arrayIndexReg);
-			}
-			else if (r.isGlobal && !r.isArray)
-			{
-				pushToBuffer(DLX.assemble(STW, expReg, 30, r.address));
-			}
-			else if (r.isParam)
-			{
-				// Since it's a parameter, we have to go up the stack via the frame pointer. 
-				pushToBuffer(DLX.assemble(STW, expReg, FP, r.parameterNumber * ( 4)));
-			}
-			else // r is a local var
-			{
-				// Since it's local, it lives below the frame pointer. 
-				pushToBuffer(DLX.assemble(STW, expReg, FP, (r.parameterNumber + 1) * -4));
-			}
-			freeRegister(expReg);
-		}
-		else // its not in the var map
-		{
-			error();
-		}
-		
-		// if (!varMap.containsKey(myIdent))
-		// {
-		// 	String name = scanner.Id2String(scanner.id);
-		// 	Result r = new Result(name, -1, getNextMemLocation());
-		// 	r.isGlobal = false;
-		// 	varMap.put(name, r);
-		// }
-	}
-
-	public int ifStatement()
-	{
-		scanner.Next();
-
-		int numInstructionsBeforeRelation = bufList.size();
-
-		retRelation rel = relation();
-
-		numInstructionsBeforeRelation = bufList.size() - numInstructionsBeforeRelation;
-
-        if (scanner.sym != scanner.expressionMap.get("then")) error();
-		
-		scanner.Next();
-
-        rel.offset = statSequence();
-        int elseBlockSize = 0; // How many instructions will occur in the else block?
-
-        if (scanner.sym == scanner.expressionMap.get("else")) {
-            scanner.Next();
-
-            int currentIndex = bufList.size();
-            elseBlockSize = statSequence();
-
-			bufList.add(currentIndex, DLX.assemble(BEQ, 0, elseBlockSize + 1));
-        }
-		
-		bufList.add(rel.idx, DLX.assemble(rel.opcode, rel.regno, bufList.size() - rel.idx - elseBlockSize + 1));
-		freeRegister(rel.regno);
-
-        while(scanner.sym != scanner.expressionMap.get("fi"))
-		{
-			scanner.Next();
-		}
-
-        return 0;
-	}
-
-	public int whileLoop()
-	{
-		int ret = 0;
-		scanner.Next();
-		
-		int numInstructionsBeforeRelation = bufList.size();
-
-		retRelation rel = relation();
-
-		numInstructionsBeforeRelation = bufList.size() - numInstructionsBeforeRelation;
-
-		int numInstructionToGoForward = 0;
-
-		if (scanner.sym == scanner.expressionMap.get("do"))
-		{
-			scanner.Next();
-			numInstructionToGoForward += statSequence();
-		}              
-		if (scanner.sym != scanner.expressionMap.get("od"))
-		{
-			error();
-		}        
-
-		pushToBuffer(rel.idx, DLX.assemble(rel.opcode, rel.regno, numInstructionToGoForward + 2));
-		freeRegister(rel.regno);
-
-		pushToBuffer(DLX.assemble(BEQ, 0, (numInstructionsBeforeRelation + numInstructionToGoForward + 1) * -1 )); 
-
-		scanner.Next();
-		return ret;
-	}
-
-	public int functionDefinition()
-	{
-		if (scanner.sym != scanner.expressionMap.get("function") && scanner.sym != scanner.expressionMap.get("procedure"))
-		{
-			error();
-		}
-		Boolean isProcedure = scanner.sym == scanner.expressionMap.get("procedure");
-		// Define the function name and get its parameters.
-		scanner.Next();
-		String funcName = scanner.Id2String(scanner.id);
-		scanner.Next();
-
-		token = scanner.sym;
-
-		Function f = new Function();
-		functionMap.put(funcName, f);
-		f = functionMap.get(funcName);
-		f.name = funcName;
-		f.isProcedure = isProcedure;
-		f.numParams = 0;
-		f.numVars = 0;
-
-		// accept the formal params. 
-		while (token != 70 && token != scanner.expressionMap.get(")"))
-		{
-			if (token == 61)
-			{
-				String name = scanner.Id2String(scanner.id);
-				Result r = new Result(name, -1, -1);
-				r.isParam = true; // it is a param
-				r.isGlobal = false;
-				r.functionName = funcName;
-				r.parameterNumber = f.numParams++;
-				varMap.put(name, r);
-				
-			}
-			scanner.Next();
-			token = scanner.sym;
-		}
-
-		f.startInstruction = bufList.size();
-
-		// set up the local variables. 
-		while (scanner.sym != scanner.expressionMap.get("{"))
-		{
-			// if it's a var, add it.
-			if (scanner.sym == 110)
-			{
-				scanner.Next();
-				while (scanner.sym != scanner.expressionMap.get(";"))
-				{
-					if (scanner.sym == 61) // if it's a var identity.
-					{
-						String name = scanner.Id2String(scanner.id);
-						Result r = new Result(name, -1, -1);
-						r.isParam = false; // it is a param
-						r.isGlobal = false;
-						r.functionName = funcName;
-						r.parameterNumber = f.numVars++;
-						varMap.put(name, r);
-					}
-					scanner.Next();
-				}
-			}
-			// if it's an array, get the dimension as well. allocate that memory. 
-			if (scanner.sym == 111)
-			{
-				ArrayList<Integer> dims = new ArrayList<Integer>();
-				int val = 0;
-				while (scanner.sym != 70)
-				{
-					if (scanner.sym == scanner.expressionMap.get("["))
-					{
-						scanner.Next(); // get to the value 
-						val = scanner.val;
-						dims.add(val);
-						// get to the end bracket
-						scanner.Next();
-					}
-					else if (scanner.sym == 31) // if its a comma, continue
-					{
-						scanner.Next();
-						token = scanner.sym;
-						continue;
-					}
-					else if (scanner.sym == 61) // then its another identifier.
-					{
-						// now get the name. 
-						//scanner.Next();
-						String name = scanner.Id2String(scanner.id);
-		
-						Result r = new Result(name, -1, getNextMemLocation());
-						// allocate the memory for that size array
-						for (int i = 0; i < dims.size(); i++)
-						{
-							for (int j = 0; j < dims.get(i); j++)
-							{
-								int next = getNextMemLocation();
-								f.numVars++;
-							}
-						}
-						r.isGlobal = false;
-						r.isArray = true;
-						r.dimensions = dims;
-						varMap.put(name, r);
-						token = scanner.sym;
-						scanner.Next();
-						token = scanner.sym;
-						continue;
-					}
-					scanner.Next();
-				}
-			}
-			scanner.Next();
-			token = scanner.sym;
-		}
-
-		// should have a semicolon
-		if (scanner.sym == scanner.expressionMap.get(";"))
-		{
-			scanner.Next();
-		}
-		// First decrement the stack pointer again 
-		bufList.add(DLX.assemble(PSH, BA, SP, -4));
-		bufList.add(DLX.assemble(PSH, FP, SP, -4));
-		bufList.add(DLX.assemble(ADDI, FP, SP, 0));
-		int a = 0;
-		if (scanner.sym == scanner.expressionMap.get("{"))
-		{
-			// do the func body
-			int stat = statSequence();
-			a += stat;
-		}
-
-		if (scanner.sym != scanner.expressionMap.get("}"))
-		{
-			error();
-		}
-		f.numberOfInstructions = a;
-
-		if (f.numVars > 0) 
-		{
-			bufList.add(bufList.size() - a, DLX.assemble(SUBI, SP, SP, 4 * (f.numVars)));
-			//bufList.add(bufList.size() - a, DLX.assemble(ADDI, FP, SP, 0));
-		}	
-
-		if (isProcedure) bufList.add(DLX.assemble(RET, 31));
-
-		return 0;
-	}
-
-	public int functionPrologue()
-	{
-		// call that function
-		String funcName = scanner.Id2String(scanner.id);
-		Function f = functionMap.get(funcName);
-		if (f == null)
-		{
-			error();
-		}
-		scanner.Next();
-
-		// Save the current registers. 
-		ArrayList<Integer> usedRegisters = PushUsedRegisters();
-		//bufList.add(DLX.assemble(ADDI, SP, SP, -4 * (f.numParams + f.numVars)));
-
-		// load the current formal input params to their respective mems. 
-		// populate those
-		if (scanner.sym != scanner.expressionMap.get(";"))
-		{
-			scanner.Next(); 
-			int i = f.numParams;
-			//
-			//if (i > 0) bufList.add(DLX.assemble(ADDI, SP, SP, 4));
-			while (scanner.sym != scanner.expressionMap.get(")"))
-			{
-				if (scanner.sym == scanner.expressionMap.get(","))
-				{
-					scanner.Next();
-					continue;
-				}
-				int myExp = exp();
-				// PSH that result in the formal params location.
-				bufList.add(DLX.assemble(PSH, myExp, SP, -4));
-				//bufList.add(DLX.assemble(ADDI, SP, SP, -4));
-				i--;
-				freeRegister(myExp);
-			}
-			// Move the SP down that number of params.
-			//bufList.add(DLX.assemble(ADDI, SP, SP, -4));
-			// okay. now we're at )
-		}
-		scanner.Next();
-
-		// Branch to that function
-		bufList.add(DLX.assemble(JSR, (f.startInstruction + 1) * 4));
-
-		// function epilogue
-
-		int returnReg = 0;
-		// POP the saved registers.
-		PopSavedRegisters(usedRegisters);
-
-		if (f.numVars > 0)
-		{
-			// move the stack pointer up by however many local variables you have
-			bufList.add(DLX.assemble(ADDI, SP, SP, 4 * f.numVars));;
-		}
-		// copy the value of 27 to a new register.
-		if (!f.isProcedure) {
-			returnReg = getNextReg();
-			bufList.add(DLX.assemble(ADD, returnReg, 27, 0));
-		}
-		//bufList.add(DLX.assemble(ADDI, SP, SP, 4 * (f.numParams)));
-		bufList.add(DLX.assemble(ADD, SP, FP, 0));
-
-		bufList.add(DLX.assemble(POP, FP, SP, 4));
-
-		// set the return address 
-		bufList.add(DLX.assemble(POP, BA, SP, 4));
-
-		// set the frame pointer 
-		bufList.add(DLX.assemble(ADDI, SP, SP, 4 * f.numParams));
-
-		//bufList.add(DLX.assemble(RET, 31));
-
-		// return that new register
-		return returnReg;
-	}
-
-	private ArrayList<Integer> PushUsedRegisters() {
-		ArrayList<Integer> myRegs = new ArrayList<Integer>();
-		for (int i = 0; i < 28; i++)
-		{
-			if (R[i] == 1)
-			{
-				// Store it 
-				bufList.add(DLX.assemble(PSH, i, 29, -4));
-				// Free it 
-				freeRegister(i);
-				// Add it to the list 
-				myRegs.add(i);
-			}
-		}
-		return myRegs;
-	}
-
-	private void PopSavedRegisters(ArrayList<Integer> used) {
-		for (int i = 0; i < used.size(); i++){
-			if(used.get(i) == null) continue;
-			// POP it into the register.
-			bufList.add(DLX.assemble(POP, used.get(i), 29, 4));			
-			R[used.get(i)] = 1;
-		}
-	}
-
-	public int returnStatement()
-	{
-		scanner.Next();
-		int myExp = exp();
-		bufList.add(DLX.assemble(ADD, 27, myExp, 0));
-		freeRegister(myExp);
-
-		bufList.add(DLX.assemble(RET, 31));
-
-		return 27;
-	}
-
-	public retRelation relation()
-	{
-		int exp1 = exp();
-		int op = scanner.sym;
-		int myOp = 0;
-		scanner.Next();
-		int exp2 = exp();
-
-		int freeReg = getNextReg();
-
-		pushToBuffer(DLX.assemble(SUB, freeReg, exp1, exp2));
-		int relIndex = bufList.size();
-
-		if (op == scanner.expressionMap.get("=="))
-		{
-			myOp = BNE;
-		}
-		else if (op == scanner.expressionMap.get("!="))
-		{
-			myOp = BEQ;
-		}
-		else if (op == scanner.expressionMap.get("<"))
-		{
-			myOp = BGE;
-		}
-		else if (op == scanner.expressionMap.get("<="))
-		{
-			myOp = BGT;
-		}
-		else if (op == scanner.expressionMap.get(">"))
-		{
-			myOp = BLE;
-		}
-		else if (op == scanner.expressionMap.get(">="))
-		{
-			myOp = BLT;
-		}
-		else
-		{
-			error();
-		}
-		freeRegister(exp1);
-		freeRegister(exp2);
-		return new retRelation(myOp, freeReg, relIndex);
-	}
-
-	int exp() {
-		int t = term();
-		while (scanner.sym == scanner.expressionMap.get("+") || scanner.sym == scanner.expressionMap.get("-")) {
-			boolean isMinus = scanner.sym == scanner.expressionMap.get("-");
-			scanner.Next();
-			if (!isMinus) // if we're substracting or adding.
-			{
-				int tempRegisterNumber = term();
-				pushToBuffer(DLX.assemble(ADD, t, t, tempRegisterNumber));
-				freeRegister(tempRegisterNumber);
-			}
-			if (isMinus)
-			{
-				int tempRegisterNumber = term();
-				pushToBuffer(DLX.assemble(SUB, t, t, tempRegisterNumber));
-				freeRegister(tempRegisterNumber);
-			}
-		}
-		return t;
-	}
-
-	int term() {
-		int t = factor(); // TODO: if scanner.sym is a number, return the value rather than the register.
-		boolean multiply = false;
-		while (scanner.sym == scanner.expressionMap.get("*") || scanner.sym == scanner.expressionMap.get("/")) {
-			if (scanner.sym == scanner.expressionMap.get("*")) multiply = true;
-			scanner.Next();
-			int factorReg = factor();
-			if (multiply)
-				pushToBuffer( DLX.assemble(MUL, t, t, factorReg) );
-			else // divide
-				pushToBuffer( DLX.assemble(DIV, t, t, factorReg) );
-			freeRegister(factorReg);
-		}
-		return t;
-	}
-
-	int factor() {
-		int ret = 0;
-		if (scanner.sym == 60) // is a number
-		{
-			// ADDI to a register.
-			int nextReg = getNextReg();
-			pushToBuffer(DLX.assemble(ADDI, nextReg, 0, scanner.val));
-			ret = nextReg; // return the location of the register.
-			scanner.Next();
-		}
-		else if (scanner.sym == 61)
-		{	// var identity
-			if ( varMap.get(scanner.Id2String(scanner.id)) == null)  // if we do not have that variable.
-			{
-				//TODO: This adds support for global/local scope of variables.
-				// // add it to the reg map
-				// String name = scanner.Id2String(scanner.id);
-				// Result r = new Result(name, -1, -1);
-				// varMap.put(name, r);
-			}
-			String name = scanner.Id2String(scanner.id);
-			Result r = varMap.get(name);
-			ret = getNextReg();
-
-			if (r.isArray && !r.isGlobal)
-			{
-				// get the value we want
-				// maybe get this in a helper function
-				scanner.Next();
-				// skip the [
-				scanner.Next();
-				int indexNum = exp();
-				// pushToBuffer(DLX.assemble(MULI, indexNum, indexNum, -4));
-				// pushToBuffer(DLX.assemble(ADDI, indexNum, indexNum, ));
-				// pushToBuffer(DLX.assemble(LDX, ret, 30, indexNum));
-				freeRegister(indexNum);
-			}
-			else if (r.isArray)
-			{
-				// get the value we want
-				// maybe get this in a helper function
-				scanner.Next();
-				// skip the [
-				scanner.Next();
-				int indexNum = exp();
-				pushToBuffer(DLX.assemble(MULI, indexNum, indexNum, -4));
-				pushToBuffer(DLX.assemble(ADDI, indexNum, indexNum, r.address));
-				pushToBuffer(DLX.assemble(LDX, ret, 30, indexNum));
-				freeRegister(indexNum);
-				// scanner.next(); // needed?
-			}
-			// LDW the value in memory to the register.
-			else if (r.isGlobal && !r.isArray)
-			{
-				pushToBuffer(DLX.assemble(LDW, ret, 30, r.address));
-			}
-			else if (r.isParam) // go up 
-			{
-				pushToBuffer(DLX.assemble(LDW, ret, FP, (r.parameterNumber + 2) * (4)));
-			}
-			else // is a local var
-			{
-				pushToBuffer(DLX.assemble(LDW, ret, FP,(r.parameterNumber + 1) * (-4)));
-			}
-
-			scanner.Next();
-		}
-		else if (scanner.sym == scanner.expressionMap.get("("))
-		{	// expression
-			scanner.Next();
-			ret = exp(); // return the next register value.
-			if (scanner.sym == scanner.expressionMap.get(")"))
-			{
-				scanner.Next();
-			}
-		}
-		else if (scanner.sym == scanner.expressionMap.get("call"))
-		{
-			ret = funcCall();
-		}
-		else
-		{
-			ret = 0; //error();
-		}
-		return ret;
-	}
-
-	int funcCall() { // assume we are at a "call" reference.
-		scanner.Next();
-		if (scanner.sym != 61)
-			error();
-		// funcCall = "call" ident [ "(" [ expression  {" ," expression } ] ")" ].
-		String myIdent = scanner.Id2String(scanner.id);
-		if (myIdent.equals("inputnum"))
-		{
-			int reg = getNextReg();
-			pushToBuffer(DLX.assemble(RDI, reg)); // read input value
-			freeRegister(reg);
-			return reg;
-		}
-		if (myIdent.equals("outputnum"))
-		{
-			scanner.Next();
-			int myExpression = exp();
-
-			pushToBuffer(DLX.assemble(51, myExpression));
-			freeRegister(myExpression);
-
-			return myExpression;
-		}
-		if (myIdent.equals("outputnewline"))
-		{
-			pushToBuffer(DLX.assemble(53)); 
-		}
-		if (functionMap.get(myIdent) != null)
-		{
-			int returnReg = functionPrologue();	
-			return returnReg;
-		}
-		return 0;
-	}
-
-	int getNextMemLocation() {
-		memTracker += -4; // Keeps track of the global memory size.
-		return memTracker;
-	}
-
-class Result {
-	// from class whiteboard
-	int regno;
-	int address;
-	int value;
-	String name;
-	String functionName;
-	Boolean isParam;
-	Boolean isGlobal;
-	Boolean isArray;
-	ArrayList<Integer> dimensions;
-	int parameterNumber;
-
-	Result(String _name, int reg, int mem) {
-		regno = reg;
-		address = mem;
-		name = _name;
-		functionName = "main";
-		isArray = false;
-	}
-	Result(String _name, int reg, int mem, String _functionName) {
-		regno = reg;
-		address = mem;
-		name = _name;
-		functionName = _functionName;
-		isArray = false;
-	}
-
-	Result() {
-		regno = 0; address = 0; name = ""; functionName = ""; isArray = false;
-	}
-}
-
-class Function {
-	int numberOfInstructions;
-	String name;
-	int returnAddress;
-	int fp;
-	int startInstruction;
-	Boolean isProcedure;
-	int numParams;
-	int numVars;
-}
-
-class retRelation {
-    int opcode;
-    int regno;
-    int idx;
-    int offset;
-    
-    retRelation() {
-        opcode = -1;
-        regno = -1;
-        idx = 0;
-        offset = 0;
-    }
-
-    retRelation(int op, int r, int i) {
-        opcode = op;
-        regno = r;
-        idx = i;
-        offset = 0;
-    }
-
-}
-static final int ADD = 0;  
-static final int SUB = 1;
-static final int MUL = 2;
-static final int DIV = 3;
-static final int MOD = 4;
-static final int CMP = 5;
-static final int OR  = 8;
-static final int AND = 9;
-static final int BIC = 10;
-static final int XOR = 11;
-static final int LSH = 12;
-static final int ASH = 13;
-static final int CHK = 14;
-
-static final int ADDI = 16;
-static final int SUBI = 17;
-static final int MULI = 18;
-static final int DIVI = 19;
-static final int MODI = 20;
-static final int CMPI = 21;
-static final int ORI  = 24;
-static final int ANDI = 25;
-static final int BICI = 26;
-static final int XORI = 27;
-static final int LSHI = 28;
-static final int ASHI = 29;
-static final int CHKI = 30;
-
-static final int LDW = 32;
-static final int LDX = 33;
-static final int POP = 34;
-static final int STW = 36;
-static final int STX = 37;
-static final int PSH = 38; 
-
-static final int BEQ = 40;
-static final int BNE = 41;
-static final int BLT = 42;
-static final int BGE = 43;
-static final int BLE = 44;
-static final int BGT = 45;
-static final int BSR = 46;
-static final int JSR = 48;
-static final int RET = 49;
-
-static final int RDI = 50;
-static final int WRD = 51;
-static final int WRH = 52;
-static final int WRL = 53;
-
-static final int ERR = 63; // error opcode which is insertered by loader 
-						   // after end of program code
-
 }
