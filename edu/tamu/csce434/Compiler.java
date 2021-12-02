@@ -2,6 +2,7 @@ package edu.tamu.csce434;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Vector;
 
@@ -31,6 +32,19 @@ public class Compiler
 		int regnum;
 		int fixuplocation;
 		int value;
+	}
+
+	private class Block
+	{
+		ArrayList<Line> lines; // list of lines that are in that block
+		ArrayList<Integer> childrenIndexes; // maybe do this another way
+		// TODO: what else?
+	}
+	private class Line
+	{
+		Boolean isRelational;
+		Integer operator;
+		ArrayList<Result> UsedVars; // something like that
 	}
 	
 	private java.util.HashMap< String, Vector<Array>> ArrayVariables = new java.util.HashMap< String, Vector<Array>>();
