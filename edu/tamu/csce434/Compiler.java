@@ -33,17 +33,26 @@ public class Compiler
 		int fixuplocation;
 		int value;
 	}
+	
+	private ArrayList<Block> BlockChain = new ArrayList<Block>(); //lol
 
 	private class Block
 	{
-		ArrayList<Line> lines; // list of lines that are in that block
-		ArrayList<Integer> childrenIndexes; // maybe do this another way
+		int BlockNumber;
+		ArrayList<Line> lines = new ArrayList<Line>(); // list of lines that are in that block
+		ArrayList<Integer> childrenIndexes = new ArrayList<Integer>(); // this is fine
 		// TODO: what else?
 	}
+	
+	// List of the unfinished paths which need to be merged later
+	// Used After every StatSequence to merge then and else blocks
+	private ArrayList<Integer> ChildlessParents = new ArrayList<Integer>();
+	
 	private class Line
 	{
 		Boolean isRelational;
 		Integer operator;
+		Result SetVar;
 		ArrayList<Result> UsedVars; // something like that
 	}
 	
@@ -780,6 +789,10 @@ public class Compiler
 	}
 	
 	private void IFSTATEMENT() {
+		
+		// Capturing parent index, so we can set its childrenIndexes later
+		int parentIndex = BlockChain.size()-1;
+		
 		expect("if");
 		//creating the two initial jump instructions and setting fixuplocation
 		Result negJump;
@@ -787,17 +800,38 @@ public class Compiler
 		
 		expect("then");
 		
+		// adding thenBlock's index to the Parent's Children
+		// the actual block will be created in STATSEQUENCE
+		BlockChain.get(parentIndex).childrenIndexes.add(BlockChain.size());
+		ArrayList<Integer> children = new ArrayList<Integer>();
+		
 		Result follow = new Result();
 		
 		STATSEQUENCE();
 		
+		// managing children, we don't want next elseblock to use these children
+		while(ChildlessParents.size() != 0) {
+			children.add(ChildlessParents.get(0));
+			ChildlessParents.remove(0);
+		}
+		
 		if(peek("else")) {
+			
+			// adding elseBlock's index to the Parent's Children
+			BlockChain.get(parentIndex).childrenIndexes.add(BlockChain.size());
+			
 			scanner.Next();
 			UncondBraFwd(follow);
 			
 			negJump.address = PC;
 			Fixup(negJump.fixuplocation);
 			STATSEQUENCE();
+			
+			// adding previous childlessParents
+			while(children.size() != 0) {
+				ChildlessParents.add(children.get(0));
+				children.remove(0);
+			}
 			
 			Fixup(follow.fixuplocation);
 			expect("fi");
@@ -813,6 +847,10 @@ public class Compiler
 	
 	private void WHILESTMT() {
 		
+		// Capturing parent index, so we can set its childrenIndexes later
+		int parentIndex = BlockChain.size()-1;
+		BlockChain.get(parentIndex).childrenIndexes.add(BlockChain.size());
+		
 		expect("while");
 		
 		int loopLocation = PC+1;
@@ -821,6 +859,18 @@ public class Compiler
 		expect("do");
 		STATSEQUENCE();
 		expect("od");
+		
+		// Connect all of the unfinished paths back to the first whileBlock
+		while (ChildlessParents.size() != 0) {
+			BlockChain.get(ChildlessParents.get(0)).childrenIndexes.add(parentIndex);
+			ChildlessParents.remove(0);
+		}
+		
+		// Our initial whileBlock becomes "childless" to continue the sequence after it exits
+		Block CurBlock = new Block();
+		CurBlock.BlockNumber = BlockChain.size();
+		BlockChain.get(parentIndex).childrenIndexes.add(CurBlock.BlockNumber);
+		BlockChain.add(CurBlock);
 		
 		UncondBraBack(loopLocation);
 		Fixup(negJump.fixuplocation);
@@ -868,20 +918,36 @@ public class Compiler
 	}
 	
 	private void STATSEQUENCE() {
-		String statementType = tokenMap.get(scanner.sym);
-		if(statementType == "let" || statementType == "call" || statementType == "if" || statementType == "while" || statementType == "return")
-			STATEMENT();
-		else	
-			scanner.Error("Invalid Statement Option");
-		while(tokenMap.get(scanner.sym) == "semicolon") {
-			scanner.Next();
-			statementType = tokenMap.get(scanner.sym);
-			if(statementType == "let" || statementType == "call" || statementType == "if" || statementType == "while" || statementType == "return") {
-				STATEMENT();}
-			else	
-				break;
+		//Holds current token name
+		Block CurBlock = new Block();
+		CurBlock.BlockNumber = BlockChain.size();
+		BlockChain.add(CurBlock);
+		
+		//If there was a previous block(s), add this index as a child to the parents
+		while (ChildlessParents.size() != 0) {
+			BlockChain.get(ChildlessParents.get(0)).childrenIndexes.add(CurBlock.BlockNumber);
+			ChildlessParents.remove(0);
 		}
-		return;
+		
+		String statementType;
+		
+		do {
+			if (tokenMap.get(scanner.sym) == "semicolon")
+				scanner.Next(); // we only need to do this after the first statement
+			
+			statementType = tokenMap.get(scanner.sym);
+			
+			if(statementType == "if" || statementType == "let" || statementType == "return" || statementType == "call" || statementType == "while") {
+				STATEMENT();
+				// when we return from while, we started a new block
+				CurBlock = BlockChain.get(BlockChain.size()-1);
+			}
+			else {	
+				break;
+			}
+			
+		} while(tokenMap.get(scanner.sym) == "semicolon");
+		
 	}
 	
 	
@@ -1204,10 +1270,11 @@ public class Compiler
         expect("period");
         //add eof identifier to buffer
         buf[PC++] = DLX.assemble(DLX.RET, 0);
-
-//        for( int i=0; i < PC; i++) {
-//        	System.out.print("(" + (i) + ")" + " " + DLX.disassemble( buf[i] ) + "\n");
-//        }
+        
+        //Printing all of the DLX Instructions that we created
+        for( int i=0; i < PC; i++) {
+        	System.out.print("(" + (i) + ")" + " " + DLX.disassemble( buf[i] ) + "\n");
+        }
         
         if(tokenMap.get(scanner.sym) != "eof")
         	scanner.Error("No EOF found.");
