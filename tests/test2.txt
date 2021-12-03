@@ -1,0 +1,10 @@
+main
+var a, b;
+{
+    let a <- 3;
+    let b <- 5;
+    if a < b then
+    call outputnum(7);
+    else
+    call outputnum(9);
+}

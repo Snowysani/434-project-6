@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.Stack;
 import java.util.Vector;
 
 public class Compiler 
@@ -41,18 +42,25 @@ public class Compiler
 		int BlockNumber;
 		ArrayList<Line> lines = new ArrayList<Line>(); // list of lines that are in that block
 		ArrayList<Integer> childrenIndexes = new ArrayList<Integer>(); // this is fine
-		// TODO: what else?
 	}
-	
+
+	// Utilizing a stack to potentially keep the scope of blocks in which lines will be added to. 
+	Stack<Block> blockScopeStack = new Stack<Block>();
+
+	// setting a global statement type string to get some information in Line. 
+	// TODO: re-investigate this method, see if there's a way we can get the statement type from a non-global level 
+	Stack<String> currentStatementType = new Stack<String>();
+
 	// List of the unfinished paths which need to be merged later
 	// Used After every StatSequence to merge then and else blocks
 	private ArrayList<Integer> ChildlessParents = new ArrayList<Integer>();
 	
 	private class Line
 	{
-		Boolean isRelational;
-		Integer operator;
+		Boolean isRelational = false;
+		String operator;
 		Result SetVar;
+		String statmentType; // utilize a statement type so we know if it's an assignment, maybe. 
 		ArrayList<Result> UsedVars; // something like that
 	}
 	
@@ -479,7 +487,7 @@ public class Compiler
 	private Result TERM() {
 		Result factor = new Result();
 		factor = FACTOR();
-		
+		Line termLine = new Line();
 		String s = tokenMap.get(scanner.sym);
 		if(s != "times" && s != "div") {
 			return factor;
@@ -562,6 +570,15 @@ public class Compiler
 		scanner.Next();
 		Result B = EXPRESSION();
 		
+		// TODO: We need a handle on vars A and B to do the comparison.
+		// 		 However, we also would greatly benefit from knowing if we are dealing with an if or a while.
+		// 		 A potential solution might be to use a stack of which statement type we are looking at. 
+		// 		 With enough pops or pushes, we would get back to knowing if we are at an if or a while. I think. Maybe. 
+		Line relationLine = new Line(); // A line created for our relational comparisons. 
+		relationLine.isRelational = true; 
+		relationLine.operator = relOP;
+		relationLine.statmentType = "relation";
+
 		//create instruction that subtracts the two to get the resulting value
 		Result relation = new Result();
 		AllocateReg(relation);
@@ -901,17 +918,30 @@ public class Compiler
 	private void STATEMENT() {
 		String statementType = tokenMap.get(scanner.sym);
 		if(statementType == "let")
+		{
+			currentStatementType.add("let");
 			ASSIGNMENT();
+		}
 		else if(statementType == "call") {
+			currentStatementType.add("functionCall"); // Maybe move this after funccall, one line after? Perhaps it won't work entirely. Need to do additional testing.
 			Result faultyReturn = FUNCCALL();
 			DeallocateReg(faultyReturn);
 		}
 		else if(statementType == "if")
+		{
+			currentStatementType.add("if");
 			IFSTATEMENT();
+		}
 		else if(statementType == "while")
+		{
+			currentStatementType.add("while");
 			WHILESTMT();
+		}
 		else if (statementType == "return")
+		{
+			currentStatementType.add("while");
 			RETURNSTMT();
+		}
 		else
 			scanner.Error("Invalid Statement Option");
 		return;
