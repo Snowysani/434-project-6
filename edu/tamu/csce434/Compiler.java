@@ -2,6 +2,8 @@ package edu.tamu.csce434;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.FileOutputStream;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.Stack;
@@ -34,8 +36,8 @@ public class Compiler
 		int fixuplocation;
 		int value;
 	}
-	
-	private ArrayList<Block> BlockChain = new ArrayList<Block>(); //lol
+
+	private ArrayList<Block> BlockChain = new ArrayList<Block>();
 
 	private class Block
 	{
@@ -90,6 +92,18 @@ public class Compiler
 	
 	private Vector<String> preDefIdents = new Vector<String>();
 	
+	
+	//
+	private void WriteData(FileOutputStream OutputFile, int i) {
+		
+		Block curBlock = BlockChain.get(i);
+		for(int j=0; j<curBlock.childrenIndexes.size(); j++) {
+			
+		}
+		return;
+	}
+
+
 	// Constructor for the compiler
 	public Compiler(String args)
 	{
@@ -1301,14 +1315,44 @@ public class Compiler
         //add eof identifier to buffer
         buf[PC++] = DLX.assemble(DLX.RET, 0);
         
+        if(tokenMap.get(scanner.sym) != "eof")
+        	scanner.Error("No EOF found.");
+        scanner.closefile();
+        
+        
+        //Creating textfile for the GUI
+        try {
+        	File file = new File("BlockDiagram.txt");
+        	FileOutputStream OutputFile = new FileOutputStream(file);
+        	
+        	// Initial File setup
+        	OutputFile.write("Diagrah G {\n".getBytes());
+        	OutputFile.write("  compound=true;\n".getBytes());
+        	
+        	// Write each block individually
+        	for(int i=0; i<BlockChain.size(); i++) {
+        		OutputFile.write("  subgraph Block".getBytes());
+        		OutputFile.write((char)(i + '0'));
+        		OutputFile.write('\n');
+        		
+        		// Write Line Data in Subgraph
+        		//WriteData(OutputFile, i);
+        	}
+        	
+        	// Finishing the file and closing FileStream
+        	OutputFile.write('}');
+        	OutputFile.close();
+        	System.out.print("success...\n"); 
+        }
+        catch (Exception e){
+        	System.out.print(e.getLocalizedMessage());
+        }
+        
         //Printing all of the DLX Instructions that we created
         for( int i=0; i < PC; i++) {
         	System.out.print("(" + (i) + ")" + " " + DLX.disassemble( buf[i] ) + "\n");
         }
         
-        if(tokenMap.get(scanner.sym) != "eof")
-        	scanner.Error("No EOF found.");
-        scanner.closefile();
 		
 		return buf;
 	}
