@@ -36,7 +36,7 @@ public class Compiler
 		int fixuplocation;
 		int value;
 	}
-	
+
 	private ArrayList<Block> BlockChain = new ArrayList<Block>();
 
 	private class Block
