@@ -29,6 +29,7 @@ public class Compiler
 	
 	private class Result 
 	{
+		String varName;
 		String kind;
 		String scope;
 		int address;
@@ -36,7 +37,7 @@ public class Compiler
 		int fixuplocation;
 		int value;
 	}
-
+	
 	private ArrayList<Block> BlockChain = new ArrayList<Block>();
 
 	private class Block
@@ -60,9 +61,10 @@ public class Compiler
 	private class Line
 	{
 		Boolean isRelational = false;
-		String operator;
+		String operator; // The beginning statement in IR (Ex. MOVE, MUL, WRITE)
 		Result SetVar;
-		String statmentType; // utilize a statement type so we know if it's an assignment, maybe. 
+		// This is probably not needed, we can set operator to MOVE if assignment
+		String statmentType; // utilize a statement type so we know if it's an assignment, maybe.
 		ArrayList<Result> UsedVars; // something like that
 	}
 	
@@ -93,12 +95,64 @@ public class Compiler
 	private Vector<String> preDefIdents = new Vector<String>();
 	
 	
-	//
-	private void WriteData(FileOutputStream OutputFile, int i) {
+	// Writing Line Data to the output file
+	private int instructionNumber = 0;
+	private void WriteLineData(FileOutputStream OutputFile, int index) {
 		
-		Block curBlock = BlockChain.get(i);
-		for(int j=0; j<curBlock.childrenIndexes.size(); j++) {
-			
+		Block curBlock = BlockChain.get(index);
+		try {
+			for (int i=0; i<curBlock.lines.size(); i++) {
+				OutputFile.write((char)(instructionNumber +'0'));
+				OutputFile.write(". ".getBytes());
+				
+				// Printing the operator
+				OutputFile.write(curBlock.lines.get(i).operator.getBytes());
+				OutputFile.write(' ');
+				
+				// 
+				OutputFile.write(curBlock.lines.get(i).statmentType.getBytes());
+				OutputFile.write(' ');
+				
+				// Prints the name of the Set Variable
+				OutputFile.write(curBlock.lines.get(i).SetVar.varName.getBytes());
+				OutputFile.write(' ');
+				
+				// Print the name of Other variables
+				for (int j=0; j<curBlock.lines.get(i).UsedVars.size(); j++) {
+					OutputFile.write(curBlock.lines.get(i).UsedVars.get(j).varName.getBytes());
+					OutputFile.write(' ');
+				}
+				
+				OutputFile.write("\\l".getBytes());
+				instructionNumber++;
+			}
+		} 
+		catch (IOException e) {
+			e.printStackTrace();
+		}
+		
+		return;
+	}
+	
+	// Writing the arrows between graphs into DOT diagram
+	private void ConnectSubgraphs(FileOutputStream OutputFile, int index) {
+		
+		Block curBlock = BlockChain.get(index);
+		try {
+			for(int i=0; i<curBlock.childrenIndexes.size(); i++) {
+				
+				OutputFile.write("  Block_".getBytes());
+        		OutputFile.write((char)(index + '0'));
+        		
+        		OutputFile.write(" -> ".getBytes());
+        		
+        		OutputFile.write("Block_".getBytes());
+        		OutputFile.write((char)(curBlock.childrenIndexes.get(i) + '0'));
+        		OutputFile.write('\n');
+			}
+		}
+		catch (Exception e) {
+			System.out.print(e.getLocalizedMessage());
 		}
 		return;
 	}
@@ -318,6 +372,7 @@ public class Compiler
 	private Result IDENT() {
 		Result result = new Result();
 		int s = scanner.sym; 
+		result.varName = scanner.Id2String(scanner.id);
 
 		if ( scanner.Id2String(scanner.id) != null ) {
 				
@@ -514,21 +569,10 @@ public class Compiler
 			factor2 = FACTOR();	
 			
 			if (s == "times") {
-				if(factor.kind == "const" && factor2.kind == "const") 
-					factor.value *= factor2.value;
-					//multiply the current factor with the incoming factor
-				else {
-					compute(DLX.MUL, factor, factor, factor2);
-				}
+				compute(DLX.MUL, factor, factor, factor2);
 			}
 			else {
-				if(factor.kind == "const" && factor2.kind == "const") 
-					factor.value /= factor2.value;
-				//divides without creating excess registers
-				else {
-					compute(DLX.DIV, factor, factor, factor2);
-				}
-					
+				compute(DLX.DIV, factor, factor, factor2);
 			}
 			if (factor2.kind == "reg")
 				DeallocateReg(factor2);
@@ -554,19 +598,10 @@ public class Compiler
 			term2 = TERM();
 			
 			if (s == "plus") {
-				if(term.kind == "const" && term2.kind == "const")
-					term.value += term2.value;
-				else {
-					compute(DLX.ADD, term, term, term2);
-				}
+				compute(DLX.ADD, term, term, term2);
 			}
 			else {
-				if(term.kind == "const" && term2.kind == "const")
-					term.value -= term2.value;
-				else {
-					compute(DLX.SUB, term, term, term2);
-				}
-						
+				compute(DLX.SUB, term, term, term2);	
 			}
 			if (term2.kind == "reg")
 				DeallocateReg(term2);
@@ -611,6 +646,7 @@ public class Compiler
 		// We want to branch when our relop has an incorrect value
 		if(relOP == "eql") {
 			buf[PC++] = DLX.assemble(DLX.BNE, relation.regnum, 0);
+			// Something like -> line.operator = "BNE";
 		}
 		else if(relOP == "neq") {
 			buf[PC++] = DLX.assemble(DLX.BEQ, relation.regnum, 0);
@@ -1326,19 +1362,28 @@ public class Compiler
         	FileOutputStream OutputFile = new FileOutputStream(file);
         	
         	// Initial File setup
-        	OutputFile.write("Diagrah G {\n".getBytes());
-        	OutputFile.write("  compound=true;\n".getBytes());
+        	OutputFile.write("digraph  Main {\n\n".getBytes());
+        	OutputFile.write("  node [shape=record fontname=Arial];\n\n".getBytes());
         	
         	// Write each block individually
         	for(int i=0; i<BlockChain.size(); i++) {
-        		OutputFile.write("  subgraph Block".getBytes());
+        		OutputFile.write("  Block_".getBytes());
         		OutputFile.write((char)(i + '0'));
-        		OutputFile.write('\n');
+        		OutputFile.write("[label=\"".getBytes());
         		
         		// Write Line Data in Subgraph
-        		//WriteData(OutputFile, i);
+        		//WriteLineData(OutputFile, i);
+        		
+        		OutputFile.write("\"]\n".getBytes());
         	}
+        	OutputFile.write('\n');
         	
+        	// put arrows in which connect the boxes
+        	for(int i=0; i<BlockChain.size(); i++) {
+        		ConnectSubgraphs(OutputFile, i);
+        	}
+        	OutputFile.write('\n');
+   
         	// Finishing the file and closing FileStream
         	OutputFile.write('}');
         	OutputFile.close();
