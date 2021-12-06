@@ -25,10 +25,12 @@ public class Compiler
 	
 	// emulated memory
 	static final int MemSize = 10000; // bytes in memory (divisible by 4)
+
 	static int M[] = new int [MemSize/4 - 1];
 	
 	private class Result 
 	{
+		String varName;
 		String kind;
 		String scope;
 		int address;
@@ -36,7 +38,7 @@ public class Compiler
 		int fixuplocation;
 		int value;
 	}
-
+	
 	private ArrayList<Block> BlockChain = new ArrayList<Block>();
 
 	private class Block
@@ -60,10 +62,12 @@ public class Compiler
 	private class Line
 	{
 		Boolean isRelational = false;
-		String operator;
-		Result SetVar;
-		String statmentType; // utilize a statement type so we know if it's an assignment, maybe. 
-		ArrayList<Result> UsedVars; // something like that
+		String operator; // The beginning statement in IR (Ex. MOVE, MUL, WRITE)
+		Result SetVar = new Result();
+		// This is probably not needed, we can set operator to MOVE if assignment
+		String statmentType; // utilize a statement type so we know if it's an assignment, maybe.
+		ArrayList<Result> UsedVars = new ArrayList<Result>(); // something like that
+		String FunctionName;
 	}
 	
 	private java.util.HashMap< String, Vector<Array>> ArrayVariables = new java.util.HashMap< String, Vector<Array>>();
@@ -93,12 +97,76 @@ public class Compiler
 	private Vector<String> preDefIdents = new Vector<String>();
 	
 	
-	//
-	private void WriteData(FileOutputStream OutputFile, int i) {
+	// Writing Line Data to the output file
+	private int instructionNumber = 1;
+	private void WriteLineData(FileOutputStream OutputFile, int index) {
 		
-		Block curBlock = BlockChain.get(i);
-		for(int j=0; j<curBlock.childrenIndexes.size(); j++) {
-			
+		Block curBlock = BlockChain.get(index);
+		try {
+			for (int i=0; i<curBlock.lines.size(); i++) {
+				
+				OutputFile.write(String.valueOf(instructionNumber).getBytes());
+				OutputFile.write(". ".getBytes());
+				
+				if (curBlock.lines.get(i).operator == "Return") {
+					OutputFile.write("RET".getBytes());
+					OutputFile.write(' ');
+					continue;
+				}	
+				
+				// Printing the operator
+				OutputFile.write(curBlock.lines.get(i).operator.getBytes());
+				OutputFile.write(' ');
+				
+				// Prints the name of the Set Variable
+				if (curBlock.lines.get(i).SetVar.varName != null ) {
+					OutputFile.write(curBlock.lines.get(i).SetVar.varName.getBytes());
+					OutputFile.write(' ');
+				}
+				
+				// Print the name of Other variables
+				if (curBlock.lines.get(i).UsedVars != null ) {
+					for (int j=0; j<curBlock.lines.get(i).UsedVars.size(); j++) {
+						OutputFile.write(curBlock.lines.get(i).UsedVars.get(j).varName.getBytes());
+						OutputFile.write(' ');
+					}
+				}
+				
+				if (curBlock.lines.get(i).operator == "call") {
+					OutputFile.write(curBlock.lines.get(i).FunctionName.getBytes());
+					OutputFile.write(' ');
+				}
+				
+				OutputFile.write("\\l".getBytes());
+				instructionNumber++;
+			}
+		} 
+		catch (IOException e) {
+			e.printStackTrace();
+		}
+		
+		return;
+	}
+	
+	// Writing the arrows between graphs into DOT diagram
+	private void ConnectSubgraphs(FileOutputStream OutputFile, int index) {
+		
+		Block curBlock = BlockChain.get(index);
+		try {
+			for(int i=0; i<curBlock.childrenIndexes.size(); i++) {
+				
+				OutputFile.write("  Block_".getBytes());
+        		OutputFile.write((char)(index + '0'));
+        		
+        		OutputFile.write(" -> ".getBytes());
+        		
+        		OutputFile.write("Block_".getBytes());
+        		OutputFile.write((char)(curBlock.childrenIndexes.get(i) + '0'));
+        		OutputFile.write('\n');
+			}
+		}
+		catch (Exception e) {
+			System.out.print(e.getLocalizedMessage());
 		}
 		return;
 	}
@@ -170,19 +238,37 @@ public class Compiler
 		op + 16 is the immediate version of each operation
 	 	immediate and register can come in any order, just use normal o */
 	private void compute (int op, Result result, Result x, Result y) {
+
+		Line termLine = new Line();
+		BlockChain.get(BlockChain.size()-1).lines.add(termLine);
+		termLine.UsedVars.add(x);
+		termLine.UsedVars.add(y);
+		
 		if (x.kind == "const" && y.kind == "const") {
 			Load(x);
 			buf[PC++] = DLX.assemble(op + 16, result.regnum, x.regnum, y.value);
+			
+			termLine.SetVar = result;
+			termLine.operator = DLX.mnemo[op + 16];
 		}
 		else if (x.kind == "const" && (y.kind == "reg"||y.kind == "arr")) {
 			Load(x);
 			buf[PC++] = DLX.assemble(op, x.regnum, x.regnum, y.regnum);
+			
+			termLine.SetVar = x;
+			termLine.operator = DLX.mnemo[op];
 		}
 		else if ((x.kind == "reg"||x.kind == "arr") && y.kind == "const") {
 			buf[PC++] = DLX.assemble(op + 16, result.regnum, x.regnum, y.value);
+			
+			termLine.SetVar = result;
+			termLine.operator = DLX.mnemo[op + 16];
 		}
 		else {	
 			buf[PC++] = DLX.assemble(op, result.regnum, x.regnum, y.regnum);
+			
+			termLine.SetVar = result;
+			termLine.operator = DLX.mnemo[op];
 		}
 		result.kind = "reg";
 		return;
@@ -329,6 +415,7 @@ public class Compiler
 						result = FunctionArguments.get(functionName).get(scanner.Id2String(scanner.id));
 						result.kind = "reg";
 						result.scope = functionName;
+						result.varName = scanner.Id2String(scanner.id);
 						scanner.Next();
 						return result;
 					}
@@ -343,6 +430,7 @@ public class Compiler
 						result = FunctionLocals.get(functionName).get(scanner.Id2String(scanner.id));
 						result.kind = "reg";
 						result.scope = functionName;
+						result.varName = scanner.Id2String(scanner.id);
 						scanner.Next();
 						return result;
 					}
@@ -354,6 +442,7 @@ public class Compiler
 				result = identMap.get(scanner.Id2String(scanner.id));
 				result.kind = "reg";
 				result.scope = "main";
+				result.varName = scanner.Id2String(scanner.id);
 				scanner.Next();
 				return result;
 			}		
@@ -366,6 +455,7 @@ public class Compiler
 						CurrentArrayName = ArrayVariables.get(functionName).get(index).name;
 						result.kind = "arr";
 						result.scope = functionName;
+						result.varName = scanner.Id2String(scanner.id);
 						scanner.Next();
 						return result;
 					}
@@ -380,12 +470,14 @@ public class Compiler
 						CurrentArrayName = ArrayVariables.get("main").get(index).name;
 						result.kind = "arr";
 						result.scope = "main";
+						result.varName = scanner.Id2String(scanner.id);
 						scanner.Next();
 						return result;
 					}
 				}
 			}
 		}
+		result.varName = scanner.Id2String(scanner.id);
 		scanner.Next();
 		return result;
 		
@@ -398,6 +490,7 @@ public class Compiler
 		//Using one memory location for variable is bad -> new
 		Result newLocation = new Result();
 		Result result = IDENT();
+		newLocation.varName = result.varName;
 		newLocation.kind = "reg";
 		newLocation.regnum = result.regnum;
 		newLocation.address = result.address;
@@ -477,31 +570,27 @@ public class Compiler
 
 		if (tokenMap.get(ret) == "ident") {
 			result = DESIGNATOR();
-			return result;
 		}
 		else if (tokenMap.get(ret) == "number") {
 			result.kind = "const";
 			result.value = GetValue(ret);
+			result.varName = String.valueOf(result.value);
+			scanner.Next();
 		}
 		else if (tokenMap.get(ret) == "openparen") {
 			scanner.Next();
 			result = EXPRESSION();
 			expect("closeparen");
-			return result;	
 		}	
 		else if (tokenMap.get(ret) == "call") {
 			result = FUNCCALL();
-			return result;
 		}
-		
-		scanner.Next();
 		return result;
 	}
 	
 	private Result TERM() {
 		Result factor = new Result();
 		factor = FACTOR();
-		Line termLine = new Line();
 		String s = tokenMap.get(scanner.sym);
 		if(s != "times" && s != "div") {
 			return factor;
@@ -514,21 +603,10 @@ public class Compiler
 			factor2 = FACTOR();	
 			
 			if (s == "times") {
-				if(factor.kind == "const" && factor2.kind == "const") 
-					factor.value *= factor2.value;
-					//multiply the current factor with the incoming factor
-				else {
-					compute(DLX.MUL, factor, factor, factor2);
-				}
+				compute(DLX.MUL, factor, factor, factor2);
 			}
 			else {
-				if(factor.kind == "const" && factor2.kind == "const") 
-					factor.value /= factor2.value;
-				//divides without creating excess registers
-				else {
-					compute(DLX.DIV, factor, factor, factor2);
-				}
-					
+				compute(DLX.DIV, factor, factor, factor2);
 			}
 			if (factor2.kind == "reg")
 				DeallocateReg(factor2);
@@ -554,19 +632,10 @@ public class Compiler
 			term2 = TERM();
 			
 			if (s == "plus") {
-				if(term.kind == "const" && term2.kind == "const")
-					term.value += term2.value;
-				else {
-					compute(DLX.ADD, term, term, term2);
-				}
+				compute(DLX.ADD, term, term, term2);
 			}
 			else {
-				if(term.kind == "const" && term2.kind == "const")
-					term.value -= term2.value;
-				else {
-					compute(DLX.SUB, term, term, term2);
-				}
-						
+				compute(DLX.SUB, term, term, term2);	
 			}
 			if (term2.kind == "reg")
 				DeallocateReg(term2);
@@ -580,9 +649,18 @@ public class Compiler
 		
 		//find values of a and b in relationship
 		Result A = EXPRESSION();
+		
 		String relOP = tokenMap.get(scanner.sym);
 		scanner.Next();
 		Result B = EXPRESSION();
+		
+		//create instruction that subtracts the two to get the resulting value
+		Result relation = new Result();
+		AllocateReg(relation);
+		relation.varName = "NONE";
+		relation.value = A.value - B.value;
+		compute(DLX.SUB, relation, A, B);
+		
 		
 		// TODO: We need a handle on vars A and B to do the comparison.
 		// 		 However, we also would greatly benefit from knowing if we are dealing with an if or a while.
@@ -590,14 +668,11 @@ public class Compiler
 		// 		 With enough pops or pushes, we would get back to knowing if we are at an if or a while. I think. Maybe. 
 		Line relationLine = new Line(); // A line created for our relational comparisons. 
 		relationLine.isRelational = true; 
-		relationLine.operator = relOP;
 		relationLine.statmentType = "relation";
-
-		//create instruction that subtracts the two to get the resulting value
-		Result relation = new Result();
-		AllocateReg(relation);
-		relation.value = A.value - B.value;
-		compute(DLX.SUB, relation, A, B);
+		BlockChain.get(BlockChain.size()-1).lines.add(relationLine);
+		
+		relationLine.UsedVars.add(A);
+		relationLine.UsedVars.add(B);
 		
 		if(A.kind == "reg")
 			DeallocateReg(A);
@@ -611,21 +686,27 @@ public class Compiler
 		// We want to branch when our relop has an incorrect value
 		if(relOP == "eql") {
 			buf[PC++] = DLX.assemble(DLX.BNE, relation.regnum, 0);
+			relationLine.operator = "BNE";
 		}
 		else if(relOP == "neq") {
 			buf[PC++] = DLX.assemble(DLX.BEQ, relation.regnum, 0);
+			relationLine.operator = "BEQ";
 		}
 		else if(relOP == "lss") {
 			buf[PC++] = DLX.assemble(DLX.BGE, relation.regnum, 0);
+			relationLine.operator = "BGE";
 		}
 		else if(relOP == "leq") { //branch Greater than
 			buf[PC++] = DLX.assemble(DLX.BGT, relation.regnum, 0);
+			relationLine.operator = "BGT";
 		}		
 		else if(relOP == "gtr") {
 			buf[PC++] = DLX.assemble(DLX.BLE, relation.regnum, 0);
+			relationLine.operator = "BLE";
 		}
 		else if(relOP == "geq") {
 			buf[PC++] = DLX.assemble(DLX.BLT, relation.regnum, 0);
+			relationLine.operator = "BLT";
 		}
 		return relation;
 	}
@@ -635,7 +716,16 @@ public class Compiler
 		expect("let");
 		Result result = DESIGNATOR();
 		
+		Line assignLine = new Line();
+		BlockChain.get(BlockChain.size()-1).lines.add(assignLine);
+		
+		
+		assignLine.SetVar = result;
+		assignLine.operator = "MOVE";
+		
 		Result IndexRegisterhold = new Result(); //save IndexRegister returnValue
+		
+		
 		if(result.kind == "arr") {
 			IndexRegisterhold.regnum = IndexRegister.regnum;
 		}
@@ -650,7 +740,10 @@ public class Compiler
 			noReturn.kind ="const";
 			noReturn.value = 0;
 			setValue = noReturn;
+			assignLine.UsedVars.add(noReturn);
 		}
+		
+		assignLine.UsedVars.add(setValue);
 		
 		if (setValue.kind == "const") {
 			Load(setValue);
@@ -685,7 +778,13 @@ public class Compiler
 	private Result FUNCCALL() {
 		expect("call");
 		
+		Line CallLine = new Line();
+		CallLine.operator = "CALL";
+		BlockChain.get(BlockChain.size()-1).lines.add(CallLine);
+		
 		Result holdInput = new Result();
+		
+		CallLine.FunctionName = holdInput.varName;
 		
 		//inputnum()
 		if(stringCompare(scanner.Id2String(scanner.id), preDefIdents.get(0))) { 
@@ -709,6 +808,7 @@ public class Compiler
 			scanner.Next();
 			expect("openparen");
 			holdInput = EXPRESSION();
+			CallLine.UsedVars.add(holdInput);
 			if (holdInput.kind == "const")
 				Load(holdInput);
 			expect("closeparen");
@@ -924,6 +1024,11 @@ public class Compiler
 					buf[PC++] = DLX.assemble(DLX.ADDI, 27, returnValue.regnum, 0);
 			}
 		}
+		
+		Line ReturnLine = new Line();
+		ReturnLine.operator = "Return";
+		BlockChain.get(BlockChain.size()-1).lines.add(ReturnLine);
+		
 		epilogue();
 		
 		return returnValue;
@@ -1268,7 +1373,7 @@ public class Compiler
 		if (CalcVarAddr() != 0) {
 			buf[PC++] = DLX.assemble(DLX.SUBI, SP, FP, -CalcVarAddr());
 		}
-			
+		
 		expect("begin");
 		
 		if(!peek("end")) {
@@ -1326,19 +1431,28 @@ public class Compiler
         	FileOutputStream OutputFile = new FileOutputStream(file);
         	
         	// Initial File setup
-        	OutputFile.write("Diagrah G {\n".getBytes());
-        	OutputFile.write("  compound=true;\n".getBytes());
+        	OutputFile.write("digraph  Main {\n\n".getBytes());
+        	OutputFile.write("  node [shape=record fontname=Arial];\n\n".getBytes());
         	
         	// Write each block individually
         	for(int i=0; i<BlockChain.size(); i++) {
-        		OutputFile.write("  subgraph Block".getBytes());
+        		OutputFile.write("  Block_".getBytes());
         		OutputFile.write((char)(i + '0'));
-        		OutputFile.write('\n');
+        		OutputFile.write("[label=\"".getBytes());
         		
         		// Write Line Data in Subgraph
-        		//WriteData(OutputFile, i);
+        		WriteLineData(OutputFile, i);
+        		
+        		OutputFile.write("\"]\n".getBytes());
         	}
+        	OutputFile.write('\n');
         	
+        	// put arrows in which connect the boxes
+        	for(int i=0; i<BlockChain.size(); i++) {
+        		ConnectSubgraphs(OutputFile, i);
+        	}
+        	OutputFile.write('\n');
+   
         	// Finishing the file and closing FileStream
         	OutputFile.write('}');
         	OutputFile.close();
