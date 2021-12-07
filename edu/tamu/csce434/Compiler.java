@@ -37,6 +37,7 @@ public class Compiler
 		int regnum;
 		int fixuplocation;
 		int value;
+		int lastSetInstruction;
 	}
 	
 	private ArrayList<Block> BlockChain = new ArrayList<Block>();
@@ -93,6 +94,10 @@ public class Compiler
 	private String functionName;
 	private boolean inFunction = false;
 	private Result ReturnRegister = new Result();
+
+	// Hold the latest instruction counts for variables. Used for SetVar(s)
+	private java.util.HashMap< String, Integer > varInstructionMap = new java.util.HashMap< String, Integer >();
+
 	
 	private Vector<String> preDefIdents = new Vector<String>();
 	
@@ -671,6 +676,11 @@ public class Compiler
 		relationLine.statmentType = "relation";
 		BlockChain.get(BlockChain.size()-1).lines.add(relationLine);
 		
+		A.lastSetInstruction = varInstructionMap.get(A.varName);
+		B.lastSetInstruction = varInstructionMap.get(B.varName);
+		A.varName = A.varName + "_" + Integer.toString(A.lastSetInstruction);
+		B.varName = B.varName + "_" + Integer.toString(B.lastSetInstruction);
+
 		relationLine.UsedVars.add(A);
 		relationLine.UsedVars.add(B);
 		
@@ -719,8 +729,14 @@ public class Compiler
 		Line assignLine = new Line();
 		BlockChain.get(BlockChain.size()-1).lines.add(assignLine);
 		
-		
+		varInstructionMap.put(result.varName, PC); // Result gets assigned a new value 
+		result.lastSetInstruction = PC;
+
+		String lineVarName = result.varName + "_" + Integer.toString(result.lastSetInstruction);
+		result.varName = lineVarName;
 		assignLine.SetVar = result;
+
+		//assignLine.SetVar.varName = lineVarName;
 		assignLine.operator = "MOVE";
 		
 		Result IndexRegisterhold = new Result(); //save IndexRegister returnValue
