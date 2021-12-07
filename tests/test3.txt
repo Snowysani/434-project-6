@@ -1,0 +1,10 @@
+main
+var a, b;
+{
+    let a <- 3;
+    let b <- 5;
+    while a < b do
+    call outputnum(a);
+    let a <- a + 1;
+    od;
+}

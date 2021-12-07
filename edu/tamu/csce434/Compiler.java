@@ -246,8 +246,30 @@ public class Compiler
 
 		Line termLine = new Line();
 		BlockChain.get(BlockChain.size()-1).lines.add(termLine);
-		termLine.UsedVars.add(x);
-		termLine.UsedVars.add(y);
+		
+		Result x_line = new Result();
+		x_line.kind = x.kind;
+		x_line.scope = x.scope;
+		x_line.varName = x.varName;
+		Result y_line = new Result();
+		y_line.kind = x.kind;
+		y_line.scope = x.scope;
+		y_line.varName = y.varName;
+
+		if (x_line.kind == "reg")
+		{
+			x_line.lastSetInstruction = varInstructionMap.get(x.varName);
+		}
+		if (y_line.kind == "reg")
+		{
+			y_line.lastSetInstruction = varInstructionMap.get(y.varName);
+		}
+
+		x_line.varName = x.varName + "_" + Integer.toString(x_line.lastSetInstruction);
+		y_line.varName = y.varName + "_" + Integer.toString(y_line.lastSetInstruction);
+
+		termLine.UsedVars.add(x_line);
+		termLine.UsedVars.add(y_line);
 		
 		if (x.kind == "const" && y.kind == "const") {
 			Load(x);
@@ -678,11 +700,15 @@ public class Compiler
 		
 		A.lastSetInstruction = varInstructionMap.get(A.varName);
 		B.lastSetInstruction = varInstructionMap.get(B.varName);
-		A.varName = A.varName + "_" + Integer.toString(A.lastSetInstruction);
-		B.varName = B.varName + "_" + Integer.toString(B.lastSetInstruction);
 
-		relationLine.UsedVars.add(A);
-		relationLine.UsedVars.add(B);
+		Result a_line = A;
+		Result b_line = B;
+
+		a_line.varName = A.varName + "_" + Integer.toString(A.lastSetInstruction);
+		b_line.varName = B.varName + "_" + Integer.toString(B.lastSetInstruction);
+
+		relationLine.UsedVars.add(a_line);
+		relationLine.UsedVars.add(b_line);
 		
 		if(A.kind == "reg")
 			DeallocateReg(A);
@@ -733,10 +759,10 @@ public class Compiler
 		result.lastSetInstruction = PC;
 
 		String lineVarName = result.varName + "_" + Integer.toString(result.lastSetInstruction);
-		result.varName = lineVarName;
+		//result.varName = lineVarName;
 		assignLine.SetVar = result;
+		assignLine.SetVar.varName = lineVarName;
 
-		//assignLine.SetVar.varName = lineVarName;
 		assignLine.operator = "MOVE";
 		
 		Result IndexRegisterhold = new Result(); //save IndexRegister returnValue
@@ -749,12 +775,20 @@ public class Compiler
 		expect("becomes");
 		
 		Result setValue = EXPRESSION();
-		
+
+		// if (setValue.kind == "reg")
+		// {
+		// 	// update the name 
+		// 	int setValueInstNumber = varInstructionMap.get(setValue.varName);
+		// 	setValue.varName = setValue.varName + Integer.toString(setValueInstNumber); // last time it was updated is the name
+		// }
+
 		//If we finish the function without a return
 		if(setValue == null) {
 			Result noReturn = new Result();
 			noReturn.kind ="const";
 			noReturn.value = 0;
+			// noReturn.varName = noReturn.varName + ")"; // testing parentheses.
 			setValue = noReturn;
 			assignLine.UsedVars.add(noReturn);
 		}
@@ -780,6 +814,8 @@ public class Compiler
 		}
 		else { // regular identifier
 			DeallocateReg(result);
+					
+
 			result.regnum = setValue.regnum;
 			result.value = setValue.value;
 			Store(result);
