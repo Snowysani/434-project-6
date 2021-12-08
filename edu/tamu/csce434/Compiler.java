@@ -37,6 +37,31 @@ public class Compiler
 		int regnum;
 		int fixuplocation;
 		int value;
+		int lastSetInstruction;
+
+		Result ()
+		{
+			varName = "";
+			kind = "";
+			scope = "";
+			address = 0;
+			regnum = 0;
+			fixuplocation = 0;
+			value = 0;
+			lastSetInstruction = 0;
+		}
+
+		Result(Result r)
+		{
+			this.varName = r.varName;
+			this.kind = r.kind;
+			this.scope = r.scope;
+			this.address = r.address;
+			this.regnum = r.regnum;
+			this.fixuplocation = r.fixuplocation;
+			this.value = r.value;
+			this.lastSetInstruction = r.lastSetInstruction;
+		}
 	}
 	
 	private ArrayList<Block> BlockChain = new ArrayList<Block>();
@@ -46,6 +71,16 @@ public class Compiler
 		int BlockNumber;
 		ArrayList<Line> lines = new ArrayList<Line>(); // list of lines that are in that block
 		ArrayList<Integer> childrenIndexes = new ArrayList<Integer>(); // this is fine
+	}
+
+	int calculateCurrentBlockIndex()
+	{
+		int index = 0;
+		for (int i = 0; i < BlockChain.size(); i++)
+		{
+			index += BlockChain.get(i).lines.size();
+		}
+		return index;
 	}
 
 	// Utilizing a stack to potentially keep the scope of blocks in which lines will be added to. 
@@ -93,6 +128,10 @@ public class Compiler
 	private String functionName;
 	private boolean inFunction = false;
 	private Result ReturnRegister = new Result();
+
+	// Hold the latest instruction counts for variables. Used for SetVar(s)
+	private java.util.HashMap< String, Integer > varInstructionMap = new java.util.HashMap< String, Integer >();
+	Stack<Integer> tempLineNumbers = new Stack<Integer>();
 	
 	private Vector<String> preDefIdents = new Vector<String>();
 	
@@ -156,12 +195,12 @@ public class Compiler
 			for(int i=0; i<curBlock.childrenIndexes.size(); i++) {
 				
 				OutputFile.write("  Block_".getBytes());
-        		OutputFile.write((char)(index + '0'));
+        		OutputFile.write(String.valueOf(index).getBytes());
         		
         		OutputFile.write(" -> ".getBytes());
         		
         		OutputFile.write("Block_".getBytes());
-        		OutputFile.write((char)(curBlock.childrenIndexes.get(i) + '0'));
+        		OutputFile.write(String.valueOf(curBlock.childrenIndexes.get(i)).getBytes());
         		OutputFile.write('\n');
 			}
 		}
@@ -240,37 +279,72 @@ public class Compiler
 	private void compute (int op, Result result, Result x, Result y) {
 
 		Line termLine = new Line();
+
+		// termLine is always temporary. 
+		// Use this in our temporary list. 
 		BlockChain.get(BlockChain.size()-1).lines.add(termLine);
-		termLine.UsedVars.add(x);
-		termLine.UsedVars.add(y);
+		int currentIndex = calculateCurrentBlockIndex();
+		tempLineNumbers.push(currentIndex);
+		
+		Result x_line = new Result(x);
+
+		Result y_line = new Result(y);
+
+		Result separateResult = new Result(result);
+		// separateResult.address = result.address;
+		// separateResult.fixuplocation = result.fixuplocation;
+		// separateResult.kind = result.kind;
+		// separateResult.lastSetInstruction = result.lastSetInstruction;
+		// separateResult.regnum = result.regnum;
+		// separateResult.scope = result.scope;
+
+		if (x_line.kind == "reg" && varInstructionMap.containsKey(x.varName))
+		{
+			x_line.lastSetInstruction = varInstructionMap.get(x.varName);
+			x_line.varName = x.varName + "_" + Integer.toString(x_line.lastSetInstruction);
+		}
+
+		if (y_line.kind == "reg" && varInstructionMap.containsKey(y.varName))
+		{
+			y_line.lastSetInstruction = varInstructionMap.get(y.varName);
+			y_line.varName = y.varName + "_" + Integer.toString(y_line.lastSetInstruction);
+		}
+
+		if (x.kind == "const" && (y.kind == "reg" || y.kind == "arr")) {
+			termLine.UsedVars.add(y_line);
+			termLine.UsedVars.add(x_line);
+		}
+		else {
+			termLine.UsedVars.add(x_line);
+			termLine.UsedVars.add(y_line);
+		}
 		
 		if (x.kind == "const" && y.kind == "const") {
 			Load(x);
+			result.regnum = x.regnum;
 			buf[PC++] = DLX.assemble(op + 16, result.regnum, x.regnum, y.value);
 			
-			termLine.SetVar = result;
 			termLine.operator = DLX.mnemo[op + 16];
 		}
-		else if (x.kind == "const" && (y.kind == "reg"||y.kind == "arr")) {
+		else if (x.kind == "const" && (y.kind == "reg" || y.kind == "arr")) {
 			Load(x);
-			buf[PC++] = DLX.assemble(op, x.regnum, x.regnum, y.regnum);
-			
-			termLine.SetVar = x;
-			termLine.operator = DLX.mnemo[op];
+			result.regnum = x.regnum;
+			buf[PC++] = DLX.assemble(op + 16, result.regnum, y.regnum, x.regnum);
+
+			termLine.operator = DLX.mnemo[op + 16];
 		}
-		else if ((x.kind == "reg"||x.kind == "arr") && y.kind == "const") {
+		else if ((x.kind == "reg" || x.kind == "arr") && y.kind == "const") {
 			buf[PC++] = DLX.assemble(op + 16, result.regnum, x.regnum, y.value);
 			
-			termLine.SetVar = result;
 			termLine.operator = DLX.mnemo[op + 16];
 		}
 		else {	
 			buf[PC++] = DLX.assemble(op, result.regnum, x.regnum, y.regnum);
 			
-			termLine.SetVar = result;
 			termLine.operator = DLX.mnemo[op];
 		}
-		result.kind = "reg";
+		result.varName = "(" + Integer.toString(currentIndex) + ")";
+
 		return;
 	}
 	
@@ -671,8 +745,17 @@ public class Compiler
 		relationLine.statmentType = "relation";
 		BlockChain.get(BlockChain.size()-1).lines.add(relationLine);
 		
-		relationLine.UsedVars.add(A);
-		relationLine.UsedVars.add(B);
+		A.lastSetInstruction = varInstructionMap.get(A.varName);
+		B.lastSetInstruction = varInstructionMap.get(B.varName);
+
+		Result a_line = A;
+		Result b_line = B;
+
+		a_line.varName = A.varName + "_" + Integer.toString(A.lastSetInstruction);
+		b_line.varName = B.varName + "_" + Integer.toString(B.lastSetInstruction);
+
+		relationLine.UsedVars.add(a_line);
+		relationLine.UsedVars.add(b_line);
 		
 		if(A.kind == "reg")
 			DeallocateReg(A);
@@ -716,15 +799,7 @@ public class Compiler
 		expect("let");
 		Result result = DESIGNATOR();
 		
-		Line assignLine = new Line();
-		BlockChain.get(BlockChain.size()-1).lines.add(assignLine);
-		
-		
-		assignLine.SetVar = result;
-		assignLine.operator = "MOVE";
-		
 		Result IndexRegisterhold = new Result(); //save IndexRegister returnValue
-		
 		
 		if(result.kind == "arr") {
 			IndexRegisterhold.regnum = IndexRegister.regnum;
@@ -734,6 +809,28 @@ public class Compiler
 		
 		Result setValue = EXPRESSION();
 		
+		// Insert the assignment line after the expression lines have been created
+		Line assignLine = new Line();
+		
+		varInstructionMap.put(result.varName, calculateCurrentBlockIndex() + 1); // Result gets assigned a new value 
+		result.lastSetInstruction = calculateCurrentBlockIndex() + 1;
+
+		String lineVarName = result.varName + "_" + Integer.toString(result.lastSetInstruction);
+		//result.varName = lineVarName;
+		assignLine.SetVar = result;
+		assignLine.SetVar.varName = lineVarName;
+
+		assignLine.operator = "MOVE";
+
+		BlockChain.get(BlockChain.size()-1).lines.add(assignLine);
+		
+		// if (setValue.kind == "reg")
+		// {
+		// 	// update the name 
+		// 	int setValueInstNumber = varInstructionMap.get(setValue.varName);
+		// 	setValue.varName = setValue.varName + Integer.toString(setValueInstNumber); // last time it was updated is the name
+		// }
+
 		//If we finish the function without a return
 		if(setValue == null) {
 			Result noReturn = new Result();
@@ -743,6 +840,10 @@ public class Compiler
 			assignLine.UsedVars.add(noReturn);
 		}
 		
+		// Temporary list of lines 
+		// In Compute, we add to that list. 
+		// Here, if that list is not empty, use that. 
+		// But if it is empty, use SetValue. (x*3) + (x*2)
 		assignLine.UsedVars.add(setValue);
 		
 		if (setValue.kind == "const") {
@@ -764,6 +865,8 @@ public class Compiler
 		}
 		else { // regular identifier
 			DeallocateReg(result);
+					
+
 			result.regnum = setValue.regnum;
 			result.value = setValue.value;
 			Store(result);
@@ -799,16 +902,27 @@ public class Compiler
 				buf[PC++] = DLX.assemble(DLX.RDI, holdInput.regnum);
 			}
 			
+			holdInput.varName = "ReadInput";
+			CallLine.UsedVars.add(holdInput);
 			
-			return holdInput;
+			Result readVar = new Result();
+			readVar.varName = "(" + Integer.toString(calculateCurrentBlockIndex()) + ")";
+			
+			return readVar;
 		}
 		
 		//outputnum(x)
 		else if(stringCompare(scanner.Id2String(scanner.id), preDefIdents.get(1))) { 
 			scanner.Next();
 			expect("openparen");
+			
 			holdInput = EXPRESSION();
+			
+			holdInput.lastSetInstruction = varInstructionMap.get(holdInput.varName);
+			Result holdInput_line = holdInput;
+			holdInput_line.varName = holdInput.varName + "_" + Integer.toString(holdInput.lastSetInstruction);
 			CallLine.UsedVars.add(holdInput);
+			
 			if (holdInput.kind == "const")
 				Load(holdInput);
 			expect("closeparen");
@@ -826,6 +940,10 @@ public class Compiler
 				expect("openparen");
 				expect("closeparen");
 			}
+			
+			holdInput.varName = "NewLine";
+			CallLine.UsedVars.add(holdInput);
+			
 			//System.out.print('\n');
 			buf[PC++] = DLX.assemble(DLX.WRL);
 			return holdInput;
@@ -958,12 +1076,6 @@ public class Compiler
 			Fixup(negJump.fixuplocation);
 			STATSEQUENCE();
 			
-			// adding previous childlessParents
-			while(children.size() != 0) {
-				ChildlessParents.add(children.get(0));
-				children.remove(0);
-			}
-			
 			Fixup(follow.fixuplocation);
 			expect("fi");
 		}
@@ -973,6 +1085,21 @@ public class Compiler
 			expect("fi");
 		}
 		DeallocateReg(negJump);
+		
+		// adding previous childlessParents
+		while(children.size() != 0) {
+			ChildlessParents.add(children.get(0));
+			children.remove(0);
+		}
+		
+		Block CurBlock = new Block();
+		CurBlock.BlockNumber = BlockChain.size();
+		while(ChildlessParents.size() != 0) {
+			BlockChain.get(ChildlessParents.get(0)).childrenIndexes.add(CurBlock.BlockNumber);
+			ChildlessParents.remove(0);
+		}
+		BlockChain.add(CurBlock);
+		
 		return;
 	}
 	
@@ -1097,6 +1224,30 @@ public class Compiler
 			
 		} while(tokenMap.get(scanner.sym) == "semicolon");
 		
+		if (BlockChain.get(BlockChain.size()-1).lines.size() == 0) {
+			
+			// Put the children back in to get rerouted to next (Restore childlessParents)
+			BlockChain.remove(BlockChain.size()-1);
+			
+			// does stuff (Actually looks through the tree and finds all parents looking at this removed child
+			// we can then redirect them back into the child-less parent list)
+			for (int i=0; i<BlockChain.size(); i++) {
+				if(BlockChain.get(i).childrenIndexes.contains(BlockChain.size())) {
+					ChildlessParents.add(BlockChain.get(i).BlockNumber);
+					for (int j=0; j<BlockChain.get(i).childrenIndexes.size(); j++) {
+						if (BlockChain.get(i).childrenIndexes.get(j) == BlockChain.size()) {
+							BlockChain.get(i).childrenIndexes.remove(j);
+							continue;
+						}
+					}
+				}
+			}
+		
+		}
+		else {
+			
+			ChildlessParents.add(BlockChain.get(BlockChain.size()-1).BlockNumber);
+		}
 	}
 	
 	
@@ -1436,9 +1587,12 @@ public class Compiler
         	
         	// Write each block individually
         	for(int i=0; i<BlockChain.size(); i++) {
+        		
         		OutputFile.write("  Block_".getBytes());
-        		OutputFile.write((char)(i + '0'));
-        		OutputFile.write("[label=\"".getBytes());
+        		OutputFile.write(String.valueOf(i).getBytes());
+        		OutputFile.write("[label=\" B".getBytes());
+        		OutputFile.write(String.valueOf(i).getBytes());
+        		OutputFile.write('|');
         		
         		// Write Line Data in Subgraph
         		WriteLineData(OutputFile, i);
