@@ -195,12 +195,12 @@ public class Compiler
 			for(int i=0; i<curBlock.childrenIndexes.size(); i++) {
 				
 				OutputFile.write("  Block_".getBytes());
-        		OutputFile.write((char)(index + '0'));
+        		OutputFile.write(String.valueOf(index).getBytes());
         		
         		OutputFile.write(" -> ".getBytes());
         		
         		OutputFile.write("Block_".getBytes());
-        		OutputFile.write((char)(curBlock.childrenIndexes.get(i) + '0'));
+        		OutputFile.write(String.valueOf(curBlock.childrenIndexes.get(i)).getBytes());
         		OutputFile.write('\n');
 			}
 		}
@@ -289,6 +289,14 @@ public class Compiler
 		Result x_line = new Result(x);
 
 		Result y_line = new Result(y);
+
+		Result separateResult = new Result(result);
+		// separateResult.address = result.address;
+		// separateResult.fixuplocation = result.fixuplocation;
+		// separateResult.kind = result.kind;
+		// separateResult.lastSetInstruction = result.lastSetInstruction;
+		// separateResult.regnum = result.regnum;
+		// separateResult.scope = result.scope;
 
 		if (x_line.kind == "reg" && varInstructionMap.containsKey(x.varName))
 		{
@@ -791,18 +799,6 @@ public class Compiler
 		expect("let");
 		Result result = DESIGNATOR();
 		
-		Line assignLine = new Line();
-		
-		varInstructionMap.put(result.varName, PC); // Result gets assigned a new value 
-		result.lastSetInstruction = PC;
-
-		String lineVarName = result.varName + "_" + Integer.toString(result.lastSetInstruction);
-		//result.varName = lineVarName;
-		assignLine.SetVar = result;
-		assignLine.SetVar.varName = lineVarName;
-
-		assignLine.operator = "MOVE";
-		
 		Result IndexRegisterhold = new Result(); //save IndexRegister returnValue
 		
 		if(result.kind == "arr") {
@@ -812,9 +808,22 @@ public class Compiler
 		expect("becomes");
 		
 		Result setValue = EXPRESSION();
+		
+		// Insert the assignment line after the expression lines have been created
+		Line assignLine = new Line();
+		
+		varInstructionMap.put(result.varName, calculateCurrentBlockIndex() + 1); // Result gets assigned a new value 
+		result.lastSetInstruction = calculateCurrentBlockIndex() + 1;
+
+		String lineVarName = result.varName + "_" + Integer.toString(result.lastSetInstruction);
+		//result.varName = lineVarName;
+		assignLine.SetVar = result;
+		assignLine.SetVar.varName = lineVarName;
+
+		assignLine.operator = "MOVE";
 
 		BlockChain.get(BlockChain.size()-1).lines.add(assignLine);
-
+		
 		// if (setValue.kind == "reg")
 		// {
 		// 	// update the name 
@@ -893,16 +902,27 @@ public class Compiler
 				buf[PC++] = DLX.assemble(DLX.RDI, holdInput.regnum);
 			}
 			
+			holdInput.varName = "ReadInput";
+			CallLine.UsedVars.add(holdInput);
 			
-			return holdInput;
+			Result readVar = new Result();
+			readVar.varName = "(" + Integer.toString(calculateCurrentBlockIndex()) + ")";
+			
+			return readVar;
 		}
 		
 		//outputnum(x)
 		else if(stringCompare(scanner.Id2String(scanner.id), preDefIdents.get(1))) { 
 			scanner.Next();
 			expect("openparen");
+			
 			holdInput = EXPRESSION();
+			
+			holdInput.lastSetInstruction = varInstructionMap.get(holdInput.varName);
+			Result holdInput_line = holdInput;
+			holdInput_line.varName = holdInput.varName + "_" + Integer.toString(holdInput.lastSetInstruction);
 			CallLine.UsedVars.add(holdInput);
+			
 			if (holdInput.kind == "const")
 				Load(holdInput);
 			expect("closeparen");
@@ -920,6 +940,10 @@ public class Compiler
 				expect("openparen");
 				expect("closeparen");
 			}
+			
+			holdInput.varName = "NewLine";
+			CallLine.UsedVars.add(holdInput);
+			
 			//System.out.print('\n');
 			buf[PC++] = DLX.assemble(DLX.WRL);
 			return holdInput;
@@ -1052,12 +1076,6 @@ public class Compiler
 			Fixup(negJump.fixuplocation);
 			STATSEQUENCE();
 			
-			// adding previous childlessParents
-			while(children.size() != 0) {
-				ChildlessParents.add(children.get(0));
-				children.remove(0);
-			}
-			
 			Fixup(follow.fixuplocation);
 			expect("fi");
 		}
@@ -1067,6 +1085,21 @@ public class Compiler
 			expect("fi");
 		}
 		DeallocateReg(negJump);
+		
+		// adding previous childlessParents
+		while(children.size() != 0) {
+			ChildlessParents.add(children.get(0));
+			children.remove(0);
+		}
+		
+		Block CurBlock = new Block();
+		CurBlock.BlockNumber = BlockChain.size();
+		while(ChildlessParents.size() != 0) {
+			BlockChain.get(ChildlessParents.get(0)).childrenIndexes.add(CurBlock.BlockNumber);
+			ChildlessParents.remove(0);
+		}
+		BlockChain.add(CurBlock);
+		
 		return;
 	}
 	
@@ -1190,7 +1223,31 @@ public class Compiler
 			}
 			
 		} while(tokenMap.get(scanner.sym) == "semicolon");
-		ChildlessParents.add(BlockChain.get(BlockChain.size()-1).BlockNumber);
+		
+		if (BlockChain.get(BlockChain.size()-1).lines.size() == 0) {
+			
+			// Put the children back in to get rerouted to next (Restore childlessParents)
+			BlockChain.remove(BlockChain.size()-1);
+			
+			// does stuff (Actually looks through the tree and finds all parents looking at this removed child
+			// we can then redirect them back into the child-less parent list)
+			for (int i=0; i<BlockChain.size(); i++) {
+				if(BlockChain.get(i).childrenIndexes.contains(BlockChain.size())) {
+					ChildlessParents.add(BlockChain.get(i).BlockNumber);
+					for (int j=0; j<BlockChain.get(i).childrenIndexes.size(); j++) {
+						if (BlockChain.get(i).childrenIndexes.get(j) == BlockChain.size()) {
+							BlockChain.get(i).childrenIndexes.remove(j);
+							continue;
+						}
+					}
+				}
+			}
+		
+		}
+		else {
+			
+			ChildlessParents.add(BlockChain.get(BlockChain.size()-1).BlockNumber);
+		}
 	}
 	
 	
@@ -1530,9 +1587,12 @@ public class Compiler
         	
         	// Write each block individually
         	for(int i=0; i<BlockChain.size(); i++) {
+        		
         		OutputFile.write("  Block_".getBytes());
-        		OutputFile.write((char)(i + '0'));
-        		OutputFile.write("[label=\"".getBytes());
+        		OutputFile.write(String.valueOf(i).getBytes());
+        		OutputFile.write("[label=\" B".getBytes());
+        		OutputFile.write(String.valueOf(i).getBytes());
+        		OutputFile.write('|');
         		
         		// Write Line Data in Subgraph
         		WriteLineData(OutputFile, i);
