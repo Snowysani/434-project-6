@@ -38,6 +38,30 @@ public class Compiler
 		int fixuplocation;
 		int value;
 		int lastSetInstruction;
+
+		Result ()
+		{
+			varName = "";
+			kind = "";
+			scope = "";
+			address = 0;
+			regnum = 0;
+			fixuplocation = 0;
+			value = 0;
+			lastSetInstruction = 0;
+		}
+
+		Result(Result r)
+		{
+			this.varName = r.varName;
+			this.kind = r.kind;
+			this.scope = r.scope;
+			this.address = r.address;
+			this.regnum = r.regnum;
+			this.fixuplocation = r.fixuplocation;
+			this.value = r.value;
+			this.lastSetInstruction = r.lastSetInstruction;
+		}
 	}
 	
 	private ArrayList<Block> BlockChain = new ArrayList<Block>();
@@ -262,69 +286,57 @@ public class Compiler
 		int currentIndex = calculateCurrentBlockIndex();
 		tempLineNumbers.push(currentIndex);
 		
-		Result x_line = new Result();
-		x_line.kind = x.kind;
-		x_line.scope = x.scope;
-		x_line.varName = x.varName;
+		Result x_line = new Result(x);
 
-		Result y_line = new Result();
-		y_line.kind = y.kind;
-		y_line.scope = y.scope;
-		y_line.varName = y.varName;
+		Result y_line = new Result(y);
 
-		Result separateResult = new Result();
-		separateResult.address = result.address;
-		separateResult.fixuplocation = result.fixuplocation;
-		separateResult.kind = result.kind;
-		separateResult.lastSetInstruction = result.lastSetInstruction;
-		separateResult.regnum = result.regnum;
-		separateResult.scope = result.scope;
-
-		if (x_line.kind == "reg")
+		if (x_line.kind == "reg" && varInstructionMap.containsKey(x.varName))
 		{
 			x_line.lastSetInstruction = varInstructionMap.get(x.varName);
 			x_line.varName = x.varName + "_" + Integer.toString(x_line.lastSetInstruction);
 		}
 
-		if (y_line.kind == "reg")
+		if (y_line.kind == "reg" && varInstructionMap.containsKey(y.varName))
 		{
 			y_line.lastSetInstruction = varInstructionMap.get(y.varName);
 			y_line.varName = y.varName + "_" + Integer.toString(y_line.lastSetInstruction);
 		}
 
-		termLine.UsedVars.add(x_line);
-		termLine.UsedVars.add(y_line);
+		if (x.kind == "const" && (y.kind == "reg" || y.kind == "arr")) {
+			termLine.UsedVars.add(y_line);
+			termLine.UsedVars.add(x_line);
+		}
+		else {
+			termLine.UsedVars.add(x_line);
+			termLine.UsedVars.add(y_line);
+		}
 		
 		if (x.kind == "const" && y.kind == "const") {
 			Load(x);
-			buf[PC++] = DLX.assemble(op + 16, separateResult.regnum, x.regnum, y.value);
+			result.regnum = x.regnum;
+			buf[PC++] = DLX.assemble(op + 16, result.regnum, x.regnum, y.value);
 			
-			//termLine.SetVar = result;
 			termLine.operator = DLX.mnemo[op + 16];
 		}
-		else if (x.kind == "const" && (y.kind == "reg"||y.kind == "arr")) {
+		else if (x.kind == "const" && (y.kind == "reg" || y.kind == "arr")) {
 			Load(x);
-			buf[PC++] = DLX.assemble(op, separateResult.regnum, x.regnum, y.regnum);
-			
-			//termLine.SetVar = x;
-			termLine.operator = DLX.mnemo[op];
+			result.regnum = x.regnum;
+			buf[PC++] = DLX.assemble(op + 16, result.regnum, y.regnum, x.regnum);
+
+			termLine.operator = DLX.mnemo[op + 16];
 		}
-		else if ((x.kind == "reg"||x.kind == "arr") && y.kind == "const") {
-			buf[PC++] = DLX.assemble(op + 16, separateResult.regnum, x.regnum, y.value);
+		else if ((x.kind == "reg" || x.kind == "arr") && y.kind == "const") {
+			buf[PC++] = DLX.assemble(op + 16, result.regnum, x.regnum, y.value);
 			
-			//termLine.SetVar = result;
 			termLine.operator = DLX.mnemo[op + 16];
 		}
 		else {	
-			buf[PC++] = DLX.assemble(op, separateResult.regnum, x.regnum, y.regnum);
+			buf[PC++] = DLX.assemble(op, result.regnum, x.regnum, y.regnum);
 			
-			//termLine.SetVar = result;
 			termLine.operator = DLX.mnemo[op];
 		}
-		separateResult.kind = "reg";
-		separateResult.varName = "(" + Integer.toString(currentIndex) + ")";
+		result.varName = "(" + Integer.toString(currentIndex) + ")";
 
-		result = separateResult;
 		return;
 	}
 	
@@ -1178,7 +1190,7 @@ public class Compiler
 			}
 			
 		} while(tokenMap.get(scanner.sym) == "semicolon");
-		
+		ChildlessParents.add(BlockChain.get(BlockChain.size()-1).BlockNumber);
 	}
 	
 	
