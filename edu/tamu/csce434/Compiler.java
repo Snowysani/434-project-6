@@ -722,7 +722,6 @@ public class Compiler
 	}
 	
 	private Result RELATION() {
-		
 		Block previousBlock = BlockChain.get(BlockChain.size() - 1);
 		ChildlessParents.add(previousBlock.BlockNumber);
 
@@ -749,7 +748,7 @@ public class Compiler
 		relation.value = A.value - B.value;
 		compute(DLX.CMP, relation, A, B);
 		
-		
+
 		// TODO: We need a handle on vars A and B to do the comparison.
 		// 		 However, we also would greatly benefit from knowing if we are dealing with an if or a while.
 		// 		 A potential solution might be to use a stack of which statement type we are looking at. 
