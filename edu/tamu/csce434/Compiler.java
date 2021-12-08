@@ -49,6 +49,16 @@ public class Compiler
 		ArrayList<Integer> childrenIndexes = new ArrayList<Integer>(); // this is fine
 	}
 
+	int calculateCurrentBlockIndex()
+	{
+		int index = 0;
+		for (int i = 0; i < BlockChain.size(); i++)
+		{
+			index += BlockChain.get(i).lines.size();
+		}
+		return index;
+	}
+
 	// Utilizing a stack to potentially keep the scope of blocks in which lines will be added to. 
 	Stack<Block> blockScopeStack = new Stack<Block>();
 
@@ -97,7 +107,7 @@ public class Compiler
 
 	// Hold the latest instruction counts for variables. Used for SetVar(s)
 	private java.util.HashMap< String, Integer > varInstructionMap = new java.util.HashMap< String, Integer >();
-
+	Stack<Integer> tempLineNumbers = new Stack<Integer>();
 	
 	private Vector<String> preDefIdents = new Vector<String>();
 	
@@ -245,59 +255,76 @@ public class Compiler
 	private void compute (int op, Result result, Result x, Result y) {
 
 		Line termLine = new Line();
+
+		// termLine is always temporary. 
+		// Use this in our temporary list. 
 		BlockChain.get(BlockChain.size()-1).lines.add(termLine);
+		int currentIndex = calculateCurrentBlockIndex();
+		tempLineNumbers.push(currentIndex);
 		
 		Result x_line = new Result();
 		x_line.kind = x.kind;
 		x_line.scope = x.scope;
 		x_line.varName = x.varName;
+
 		Result y_line = new Result();
-		y_line.kind = x.kind;
-		y_line.scope = x.scope;
+		y_line.kind = y.kind;
+		y_line.scope = y.scope;
 		y_line.varName = y.varName;
+
+		Result separateResult = new Result();
+		separateResult.address = result.address;
+		separateResult.fixuplocation = result.fixuplocation;
+		separateResult.kind = result.kind;
+		separateResult.lastSetInstruction = result.lastSetInstruction;
+		separateResult.regnum = result.regnum;
+		separateResult.scope = result.scope;
 
 		if (x_line.kind == "reg")
 		{
 			x_line.lastSetInstruction = varInstructionMap.get(x.varName);
+			x_line.varName = x.varName + "_" + Integer.toString(x_line.lastSetInstruction);
 		}
+
 		if (y_line.kind == "reg")
 		{
 			y_line.lastSetInstruction = varInstructionMap.get(y.varName);
+			y_line.varName = y.varName + "_" + Integer.toString(y_line.lastSetInstruction);
 		}
-
-		x_line.varName = x.varName + "_" + Integer.toString(x_line.lastSetInstruction);
-		y_line.varName = y.varName + "_" + Integer.toString(y_line.lastSetInstruction);
 
 		termLine.UsedVars.add(x_line);
 		termLine.UsedVars.add(y_line);
 		
 		if (x.kind == "const" && y.kind == "const") {
 			Load(x);
-			buf[PC++] = DLX.assemble(op + 16, result.regnum, x.regnum, y.value);
+			buf[PC++] = DLX.assemble(op + 16, separateResult.regnum, x.regnum, y.value);
 			
-			termLine.SetVar = result;
+			//termLine.SetVar = result;
 			termLine.operator = DLX.mnemo[op + 16];
 		}
 		else if (x.kind == "const" && (y.kind == "reg"||y.kind == "arr")) {
 			Load(x);
-			buf[PC++] = DLX.assemble(op, x.regnum, x.regnum, y.regnum);
+			buf[PC++] = DLX.assemble(op, separateResult.regnum, x.regnum, y.regnum);
 			
-			termLine.SetVar = x;
+			//termLine.SetVar = x;
 			termLine.operator = DLX.mnemo[op];
 		}
 		else if ((x.kind == "reg"||x.kind == "arr") && y.kind == "const") {
-			buf[PC++] = DLX.assemble(op + 16, result.regnum, x.regnum, y.value);
+			buf[PC++] = DLX.assemble(op + 16, separateResult.regnum, x.regnum, y.value);
 			
-			termLine.SetVar = result;
+			//termLine.SetVar = result;
 			termLine.operator = DLX.mnemo[op + 16];
 		}
 		else {	
-			buf[PC++] = DLX.assemble(op, result.regnum, x.regnum, y.regnum);
+			buf[PC++] = DLX.assemble(op, separateResult.regnum, x.regnum, y.regnum);
 			
-			termLine.SetVar = result;
+			//termLine.SetVar = result;
 			termLine.operator = DLX.mnemo[op];
 		}
-		result.kind = "reg";
+		separateResult.kind = "reg";
+		separateResult.varName = "(" + Integer.toString(currentIndex) + ")";
+
+		result = separateResult;
 		return;
 	}
 	
@@ -753,7 +780,6 @@ public class Compiler
 		Result result = DESIGNATOR();
 		
 		Line assignLine = new Line();
-		BlockChain.get(BlockChain.size()-1).lines.add(assignLine);
 		
 		varInstructionMap.put(result.varName, PC); // Result gets assigned a new value 
 		result.lastSetInstruction = PC;
@@ -767,7 +793,6 @@ public class Compiler
 		
 		Result IndexRegisterhold = new Result(); //save IndexRegister returnValue
 		
-		
 		if(result.kind == "arr") {
 			IndexRegisterhold.regnum = IndexRegister.regnum;
 		}
@@ -775,6 +800,8 @@ public class Compiler
 		expect("becomes");
 		
 		Result setValue = EXPRESSION();
+
+		BlockChain.get(BlockChain.size()-1).lines.add(assignLine);
 
 		// if (setValue.kind == "reg")
 		// {
@@ -788,11 +815,14 @@ public class Compiler
 			Result noReturn = new Result();
 			noReturn.kind ="const";
 			noReturn.value = 0;
-			// noReturn.varName = noReturn.varName + ")"; // testing parentheses.
 			setValue = noReturn;
 			assignLine.UsedVars.add(noReturn);
 		}
 		
+		// Temporary list of lines 
+		// In Compute, we add to that list. 
+		// Here, if that list is not empty, use that. 
+		// But if it is empty, use SetValue. (x*3) + (x*2)
 		assignLine.UsedVars.add(setValue);
 		
 		if (setValue.kind == "const") {

@@ -2,8 +2,8 @@ digraph  Main {
 
   node [shape=record fontname=Arial];
 
-  Block_0[label="1. MOVE a_3 3 \l2. MOVE b_6 5 \l3. SUB NONE a_3 b_6 \l4. BGE a_3 b_6 \l"]
-  Block_1[label="5. CALL a \l6. MOVE a_15 a \l7. ADDI a a 1 \l"]
+  Block_0[label="1. MOVE a_3 3 \l2. MOVE b_6 5 \l3. SUB a_3 b_6 \l4. BGE a_3 b_6 \l"]
+  Block_1[label="5. CALL a \l6. MULI a_15 2 \l7. ADDI a_15 10 \l8. MOVE a_15 a \l"]
   Block_2[label=""]
 
   Block_0 -> Block_1
