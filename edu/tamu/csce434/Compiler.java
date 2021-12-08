@@ -1249,31 +1249,8 @@ public class Compiler
 			
 		} while(tokenMap.get(scanner.sym) == "semicolon");
 		
-		if (BlockChain.get(BlockChain.size()-1).lines.size() == 0) {
-			
-			// Put the children back in to get rerouted to next (Restore childlessParents)
-			BlockChain.remove(BlockChain.size()-1);
-			
-			// does stuff (Actually looks through the tree and finds all parents looking at this removed child
-			// we can then redirect them back into the child-less parent list)
-			removeEmptyBlocks();
-			// for (int i=0; i<BlockChain.size(); i++) {
-			// 	if(BlockChain.get(i).childrenIndexes.contains(BlockChain.size())) {
-			// 		ChildlessParents.add(BlockChain.get(i).BlockNumber);
-			// 		for (int j=0; j<BlockChain.get(i).childrenIndexes.size(); j++) {
-			// 			if (BlockChain.get(i).childrenIndexes.get(j) == BlockChain.size()) {
-			// 				BlockChain.get(i).childrenIndexes.remove(j);
-			// 				continue;
-			// 			}
-			// 		}
-			// 	}
-			// }
+		checkForAndRemoveEmptyBlocks();
 		
-		}
-		else {
-			
-			ChildlessParents.add(BlockChain.get(BlockChain.size()-1).BlockNumber);
-		}
 	}
 	
 	
@@ -1327,17 +1304,28 @@ public class Compiler
 		} 
 	}
 	
-	private void removeEmptyBlocks() {
-		for (int i=0; i<BlockChain.size(); i++) {
-			if(BlockChain.get(i).childrenIndexes.contains(BlockChain.size())) {
-				ChildlessParents.add(BlockChain.get(i).BlockNumber);
-				for (int j=0; j<BlockChain.get(i).childrenIndexes.size(); j++) {
-					if (BlockChain.get(i).childrenIndexes.get(j) == BlockChain.size()) {
-						BlockChain.get(i).childrenIndexes.remove(j);
-						continue;
+	private void checkForAndRemoveEmptyBlocks() {
+		if (BlockChain.get(BlockChain.size()-1).lines.size() == 0) {
+			// Put the children back in to get rerouted to next (Restore childlessParents)
+			BlockChain.remove(BlockChain.size()-1);
+			
+			// does stuff (Actually looks through the tree and finds all parents looking at this removed child
+			// we can then redirect them back into the child-less parent list)
+			for (int i=0; i<BlockChain.size(); i++) {
+				if(BlockChain.get(i).childrenIndexes.contains(BlockChain.size())) {
+					ChildlessParents.add(BlockChain.get(i).BlockNumber);
+					for (int j=0; j<BlockChain.get(i).childrenIndexes.size(); j++) {
+						if (BlockChain.get(i).childrenIndexes.get(j) == BlockChain.size()) {
+							BlockChain.get(i).childrenIndexes.remove(j);
+							continue;
+						}
 					}
 				}
 			}
+		}
+		else {
+			
+			ChildlessParents.add(BlockChain.get(BlockChain.size()-1).BlockNumber);
 		}
 	}
 
