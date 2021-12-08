@@ -172,6 +172,8 @@ public class Compiler
 				}
 				
 				if (curBlock.lines.get(i).operator == "call") {
+					// OutputFile.write(curBlock.lines.get(i).FunctionName.getBytes());
+					// OutputFile.write(' ');
 					OutputFile.write(curBlock.lines.get(i).FunctionName.getBytes());
 					OutputFile.write(' ');
 				}
@@ -721,6 +723,18 @@ public class Compiler
 	
 	private Result RELATION() {
 		
+		Block previousBlock = BlockChain.get(BlockChain.size() - 1);
+		ChildlessParents.add(previousBlock.BlockNumber);
+
+		Block relationBlock = new Block();
+		BlockChain.add(relationBlock);
+		relationBlock.BlockNumber = BlockChain.size() - 1;
+
+		while(ChildlessParents.size() != 0) {
+			BlockChain.get(ChildlessParents.get(0)).childrenIndexes.add(relationBlock.BlockNumber);
+			ChildlessParents.remove(0);
+		}
+
 		//find values of a and b in relationship
 		Result A = EXPRESSION();
 		
@@ -733,7 +747,7 @@ public class Compiler
 		AllocateReg(relation);
 		relation.varName = "NONE";
 		relation.value = A.value - B.value;
-		compute(DLX.SUB, relation, A, B);
+		compute(DLX.CMP, relation, A, B);
 		
 		
 		// TODO: We need a handle on vars A and B to do the comparison.
@@ -745,7 +759,9 @@ public class Compiler
 		relationLine.statmentType = "relation";
 		BlockChain.get(BlockChain.size()-1).lines.add(relationLine);
 		
+		if (A.kind == "reg")
 		A.lastSetInstruction = varInstructionMap.get(A.varName);
+		if (B.kind == "reg")
 		B.lastSetInstruction = varInstructionMap.get(B.varName);
 
 		Result a_line = A;
@@ -754,8 +770,9 @@ public class Compiler
 		a_line.varName = A.varName + "_" + Integer.toString(A.lastSetInstruction);
 		b_line.varName = B.varName + "_" + Integer.toString(B.lastSetInstruction);
 
-		relationLine.UsedVars.add(a_line);
-		relationLine.UsedVars.add(b_line);
+		relationLine.UsedVars.add(relation);
+		//relationLine.UsedVars.add(a_line);
+		//relationLine.UsedVars.add(b_line);
 		
 		if(A.kind == "reg")
 			DeallocateReg(A);
@@ -1012,6 +1029,8 @@ public class Compiler
 					AllocateReg(StoreReturn);
 					buf[PC++] = DLX.assemble(DLX.ADDI, StoreReturn.regnum, ReturnRegister.regnum, 0);
 					
+					// StoreReturn.varName = "testing";
+					// CallLine.SetVar = StoreReturn;
 					
 					return StoreReturn;
 				}
@@ -1046,11 +1065,13 @@ public class Compiler
 		//creating the two initial jump instructions and setting fixuplocation
 		Result negJump;
 		negJump = RELATION();
-		
+		parentIndex = BlockChain.size()-1;
+
 		expect("then");
 		
 		// adding thenBlock's index to the Parent's Children
 		// the actual block will be created in STATSEQUENCE
+		
 		BlockChain.get(parentIndex).childrenIndexes.add(BlockChain.size());
 		ArrayList<Integer> children = new ArrayList<Integer>();
 		
@@ -1107,12 +1128,16 @@ public class Compiler
 		
 		// Capturing parent index, so we can set its childrenIndexes later
 		int parentIndex = BlockChain.size()-1;
-		BlockChain.get(parentIndex).childrenIndexes.add(BlockChain.size());
+		// BlockChain.get(parentIndex).childrenIndexes.add(BlockChain.size());
 		
 		expect("while");
 		
 		int loopLocation = PC+1;
 		Result negJump = RELATION();
+		
+		parentIndex = BlockChain.size()-1;
+		BlockChain.get(parentIndex).childrenIndexes.add(BlockChain.size());
+
 		
 		expect("do");
 		STATSEQUENCE();
@@ -1231,17 +1256,18 @@ public class Compiler
 			
 			// does stuff (Actually looks through the tree and finds all parents looking at this removed child
 			// we can then redirect them back into the child-less parent list)
-			for (int i=0; i<BlockChain.size(); i++) {
-				if(BlockChain.get(i).childrenIndexes.contains(BlockChain.size())) {
-					ChildlessParents.add(BlockChain.get(i).BlockNumber);
-					for (int j=0; j<BlockChain.get(i).childrenIndexes.size(); j++) {
-						if (BlockChain.get(i).childrenIndexes.get(j) == BlockChain.size()) {
-							BlockChain.get(i).childrenIndexes.remove(j);
-							continue;
-						}
-					}
-				}
-			}
+			removeEmptyBlocks();
+			// for (int i=0; i<BlockChain.size(); i++) {
+			// 	if(BlockChain.get(i).childrenIndexes.contains(BlockChain.size())) {
+			// 		ChildlessParents.add(BlockChain.get(i).BlockNumber);
+			// 		for (int j=0; j<BlockChain.get(i).childrenIndexes.size(); j++) {
+			// 			if (BlockChain.get(i).childrenIndexes.get(j) == BlockChain.size()) {
+			// 				BlockChain.get(i).childrenIndexes.remove(j);
+			// 				continue;
+			// 			}
+			// 		}
+			// 	}
+			// }
 		
 		}
 		else {
@@ -1301,6 +1327,20 @@ public class Compiler
 		} 
 	}
 	
+	private void removeEmptyBlocks() {
+		for (int i=0; i<BlockChain.size(); i++) {
+			if(BlockChain.get(i).childrenIndexes.contains(BlockChain.size())) {
+				ChildlessParents.add(BlockChain.get(i).BlockNumber);
+				for (int j=0; j<BlockChain.get(i).childrenIndexes.size(); j++) {
+					if (BlockChain.get(i).childrenIndexes.get(j) == BlockChain.size()) {
+						BlockChain.get(i).childrenIndexes.remove(j);
+						continue;
+					}
+				}
+			}
+		}
+	}
+
 	private int CalcVarAddr() {
 		int numEntries = 1;
 		if (inFunction) 
