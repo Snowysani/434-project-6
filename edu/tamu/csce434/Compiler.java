@@ -71,6 +71,7 @@ public class Compiler
 		int BlockNumber;
 		ArrayList<Line> lines = new ArrayList<Line>(); // list of lines that are in that block
 		ArrayList<Integer> childrenIndexes = new ArrayList<Integer>(); // this is fine
+		String StatementType = new String(); // used to see if we are in IF or WHILE (used for labeling arrows in block diagram)
 	}
 
 	int calculateCurrentBlockIndex()
@@ -96,11 +97,8 @@ public class Compiler
 	
 	private class Line
 	{
-		Boolean isRelational = false;
 		String operator; // The beginning statement in IR (Ex. MOVE, MUL, WRITE)
 		Result SetVar = new Result();
-		// This is probably not needed, we can set operator to MOVE if assignment
-		String statmentType; // utilize a statement type so we know if it's an assignment, maybe.
 		ArrayList<Result> UsedVars = new ArrayList<Result>(); // something like that
 		String FunctionName;
 	}
@@ -153,6 +151,12 @@ public class Compiler
 					continue;
 				}	
 				
+				// Printing if or while if aplicable
+				if (i == curBlock.lines.size()-1 && (curBlock.StatementType == "IF" || curBlock.StatementType == "WHILE")) {
+					OutputFile.write(curBlock.StatementType.getBytes());
+					OutputFile.write(' ');
+				}
+				
 				// Printing the operator
 				OutputFile.write(curBlock.lines.get(i).operator.getBytes());
 				OutputFile.write(' ');
@@ -203,6 +207,32 @@ public class Compiler
         		
         		OutputFile.write("Block_".getBytes());
         		OutputFile.write(String.valueOf(curBlock.childrenIndexes.get(i)).getBytes());
+        		
+        		// if we have if/while stmt, we need to add names to edges
+        		if (curBlock.StatementType == "IF") {
+        			if (curBlock.childrenIndexes.size() == 2) {
+        				if (i == 0) {
+        					OutputFile.write("[label=\"then\"]".getBytes());
+        				}
+        				else { //i == 1
+        					OutputFile.write("[label=\"else\"]".getBytes());
+        				}
+        			}
+        			else { // should have only one child
+        				OutputFile.write("[label=\"then\"]".getBytes());
+        			}
+        		}
+        		else if (curBlock.StatementType == "WHILE") {
+        			if (curBlock.childrenIndexes.size() == 2) {
+        				if (i == 0) {
+        					OutputFile.write("[label=\"true\"]".getBytes());
+        				}
+        				else { //i == 1
+        					OutputFile.write("[label=\"false\"]".getBytes());
+        				}
+        			}
+        		}
+        		
         		OutputFile.write('\n');
 			}
 		}
@@ -754,8 +784,7 @@ public class Compiler
 		// 		 A potential solution might be to use a stack of which statement type we are looking at. 
 		// 		 With enough pops or pushes, we would get back to knowing if we are at an if or a while. I think. Maybe. 
 		Line relationLine = new Line(); // A line created for our relational comparisons. 
-		relationLine.isRelational = true; 
-		relationLine.statmentType = "relation";
+
 		BlockChain.get(BlockChain.size()-1).lines.add(relationLine);
 		
 		if (A.kind == "reg")
@@ -1064,8 +1093,11 @@ public class Compiler
 		//creating the two initial jump instructions and setting fixuplocation
 		Result negJump;
 		negJump = RELATION();
+		
 		parentIndex = BlockChain.size()-1;
 
+		BlockChain.get(parentIndex).StatementType = "IF";
+		
 		expect("then");
 		
 		// adding thenBlock's index to the Parent's Children
@@ -1136,7 +1168,8 @@ public class Compiler
 		
 		parentIndex = BlockChain.size()-1;
 		BlockChain.get(parentIndex).childrenIndexes.add(BlockChain.size());
-
+		
+		BlockChain.get(parentIndex).StatementType = "WHILE";
 		
 		expect("do");
 		STATSEQUENCE();
