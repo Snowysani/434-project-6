@@ -1,0 +1,22 @@
+main
+var input, myvar;
+var max, i, curr;
+{
+    let max <- 0;
+    let i <- 0;
+    let input <- call inputnum();
+
+    while i < input do
+        let curr <- call inputnum();
+        if curr > max then
+            let max <- curr; 
+        else
+            call outputnewline();
+        fi;
+        let i <- i + 1;
+    od;
+
+    call outputnewline();
+    call outputnum(max);
+    call outputnewline();
+}.

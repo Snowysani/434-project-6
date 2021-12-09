@@ -1,0 +1,16 @@
+main
+var i,j,num;
+{
+    let j <- 1;
+    while j < 10 do
+        let i <- 1;
+        let num <- call inputnum();
+        while i < 3 do
+            call outputnum(num);
+            let i <- i + 1;
+            let num <- num * i;
+            call outputnewline();
+        od;
+        let j <- j + 1;
+    od;
+}.
