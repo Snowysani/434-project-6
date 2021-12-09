@@ -71,7 +71,10 @@ public class Compiler
 		int BlockNumber;
 		ArrayList<Line> lines = new ArrayList<Line>(); // list of lines that are in that block
 		ArrayList<Integer> childrenIndexes = new ArrayList<Integer>(); // this is fine
+		ArrayList<Integer> predecessors = new ArrayList<Integer>();
+		
 		String StatementType = new String(); // used to see if we are in IF or WHILE (used for labeling arrows in block diagram)
+	
 	}
 
 	int calculateCurrentBlockIndex()
@@ -113,6 +116,7 @@ public class Compiler
 	}
 	
 	private edu.tamu.csce434.Scanner scanner;
+	private edu.tamu.csce434.RegisterData registertracker;
 
 	int inputNumber;
 	
@@ -231,6 +235,9 @@ public class Compiler
         					OutputFile.write("[label=\"false\"]".getBytes());
         				}
         			}
+        			else {
+        				OutputFile.write("[label=\"true\"]".getBytes());
+        			}
         		}
         		
         		OutputFile.write('\n');
@@ -240,6 +247,74 @@ public class Compiler
 			System.out.print(e.getLocalizedMessage());
 		}
 		return;
+	}
+	
+	private void CreatingDominanceTree() {
+		
+		//Unreadable, Only worry about the output which is: (this should be changed to be a global tree)
+		class treeData {
+			int node;
+			ArrayList<Block> children;
+		}
+		ArrayList<treeData> domTree = new ArrayList<treeData>();
+		
+		// Enter the data for block 0 (starting block dominates all except self)
+		ArrayList<Block> tempBlockChain = new ArrayList<Block>(BlockChain);
+		tempBlockChain.remove(0);
+		
+		treeData curData = new treeData();
+		curData.node = 0;
+		curData.children = new ArrayList<Block>(tempBlockChain);
+		
+		domTree.add(curData);
+		
+		// Starting Domination Algorithm
+		for (int i=1; i<BlockChain.size()-1; i++) {
+			
+			// holds the blocks that we have already seen, so we don't come back
+			ArrayList<Integer> checkVisited = new ArrayList<Integer>();
+			checkVisited.add(0);
+			
+			// Acts as a stack and stores the next location to search
+			ArrayList<Integer> nextVisited = new ArrayList<Integer>();
+			nextVisited.add(0);
+			
+			// this will be the final list of dominated, so all the nodes we couldn't reach
+			ArrayList<Block> listOfDominated = new ArrayList<Block>(BlockChain);
+			
+			// Holds the tree which we are searching, minus the one original node
+			tempBlockChain = new ArrayList<Block>(BlockChain);
+			tempBlockChain.remove(i);
+			
+			// DFS starting at node 0
+			while(nextVisited.size() != 0) {
+				int curNode = nextVisited.get(0);
+				nextVisited.remove(0);
+				
+				for ( int j=0; j<tempBlockChain.get(curNode).childrenIndexes.size(); j++ ) {
+					if (!checkVisited.contains(tempBlockChain.get(curNode).childrenIndexes.get(j))) {
+						checkVisited.add(tempBlockChain.get(curNode).childrenIndexes.get(j)); // Block Number (not index)
+						nextVisited.add(tempBlockChain.get(curNode).childrenIndexes.get(j)); // Block Number
+						
+					}
+				}
+				
+				if (listOfDominated.contains(BlockChain.get(curNode)))
+					listOfDominated.remove(BlockChain.get(curNode).BlockNumber); // Now. I'm confused
+			}
+			
+			curData = new treeData();
+			curData.node = i;
+			curData.children = new ArrayList<Block>(listOfDominated);
+			
+			domTree.add(curData);
+		}
+		
+		// resulting list we care about
+		//domTree
+		
+		
+		
 	}
 
 
@@ -761,6 +836,7 @@ public class Compiler
 
 		while(ChildlessParents.size() != 0) {
 			BlockChain.get(ChildlessParents.get(0)).childrenIndexes.add(relationBlock.BlockNumber);
+			BlockChain.get(relationBlock.BlockNumber).predecessors.add(ChildlessParents.get(0));
 			ChildlessParents.remove(0);
 		}
 
@@ -1120,6 +1196,7 @@ public class Compiler
 			
 			// adding elseBlock's index to the Parent's Children
 			BlockChain.get(parentIndex).childrenIndexes.add(BlockChain.size());
+			BlockChain.get(BlockChain.size()).predecessors.add(parentIndex);
 			
 			scanner.Next();
 			UncondBraFwd(follow);
@@ -1148,6 +1225,7 @@ public class Compiler
 		CurBlock.BlockNumber = BlockChain.size();
 		while(ChildlessParents.size() != 0) {
 			BlockChain.get(ChildlessParents.get(0)).childrenIndexes.add(CurBlock.BlockNumber);
+			BlockChain.get(CurBlock.BlockNumber).predecessors.add(ChildlessParents.get(0));
 			ChildlessParents.remove(0);
 		}
 		BlockChain.add(CurBlock);
@@ -1178,6 +1256,7 @@ public class Compiler
 		// Connect all of the unfinished paths back to the first whileBlock
 		while (ChildlessParents.size() != 0) {
 			BlockChain.get(ChildlessParents.get(0)).childrenIndexes.add(parentIndex);
+			BlockChain.get(parentIndex).predecessors.add(ChildlessParents.get(0));
 			ChildlessParents.remove(0);
 		}
 		
@@ -1185,6 +1264,7 @@ public class Compiler
 		Block CurBlock = new Block();
 		CurBlock.BlockNumber = BlockChain.size();
 		BlockChain.get(parentIndex).childrenIndexes.add(CurBlock.BlockNumber);
+		BlockChain.get(CurBlock.BlockNumber).predecessors.add(parentIndex);
 		BlockChain.add(CurBlock);
 		
 		UncondBraBack(loopLocation);
@@ -1259,6 +1339,7 @@ public class Compiler
 		//If there was a previous block(s), add this index as a child to the parents
 		while (ChildlessParents.size() != 0) {
 			BlockChain.get(ChildlessParents.get(0)).childrenIndexes.add(CurBlock.BlockNumber);
+			BlockChain.get(CurBlock.BlockNumber).predecessors.add(ChildlessParents.get(0));
 			ChildlessParents.remove(0);
 		}
 		
@@ -1356,7 +1437,6 @@ public class Compiler
 			}
 		}
 		else {
-			
 			ChildlessParents.add(BlockChain.get(BlockChain.size()-1).BlockNumber);
 		}
 	}
