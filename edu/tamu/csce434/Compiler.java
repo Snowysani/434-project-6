@@ -187,6 +187,28 @@ public class Compiler
 		return;
 	}
 
+
+    
+    // DFS here. Build a tree based on the first block. 
+    public void makeDominanceTree(TreeData td)
+    {
+        if (td == null)
+        {
+            System.err.println("There was a null TreeData node when making dominance tree");
+        }
+
+		TreeData firstBlock = td;
+		ArrayList<Block> visitedNodes = new ArrayList<>();
+		visitedNodes.add(td.node);
+		
+        if (td.node.childrenIndexes.size() >= 1 && !visitedNodes.contains(BlockChain.get(td.node.childrenIndexes.get(0))))
+		{
+			// If we have a child node, and we have not visited that yet, denote it as a TreeData node and add to the children. 
+			//TreeData child = new TreeData(BlockChain.get(td.node.childrenIndexes.get(0)));
+			td.children.add(BlockChain.get(td.node.childrenIndexes.get(0))); // Wait, I might be confusing myself. 
+		}
+    }
+
 	private void CreatingDominanceTree() {
 
 		ArrayList<TreeData> domTree = new ArrayList<TreeData>();
