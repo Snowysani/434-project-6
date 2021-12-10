@@ -28,54 +28,7 @@ public class Compiler
 
 	static int M[] = new int [MemSize/4 - 1];
 	
-	private class Result 
-	{
-		String varName;
-		String kind;
-		String scope;
-		int address;
-		int regnum;
-		int fixuplocation;
-		int value;
-		int lastSetInstruction;
-
-		Result ()
-		{
-			varName = "";
-			kind = "";
-			scope = "";
-			address = 0;
-			regnum = 0;
-			fixuplocation = 0;
-			value = 0;
-			lastSetInstruction = 0;
-		}
-
-		Result(Result r)
-		{
-			this.varName = r.varName;
-			this.kind = r.kind;
-			this.scope = r.scope;
-			this.address = r.address;
-			this.regnum = r.regnum;
-			this.fixuplocation = r.fixuplocation;
-			this.value = r.value;
-			this.lastSetInstruction = r.lastSetInstruction;
-		}
-	}
-	
 	private ArrayList<Block> BlockChain = new ArrayList<Block>();
-
-	private class Block
-	{
-		int BlockNumber;
-		ArrayList<Line> lines = new ArrayList<Line>(); // list of lines that are in that block
-		ArrayList<Integer> childrenIndexes = new ArrayList<Integer>(); // this is fine
-		ArrayList<Integer> predecessors = new ArrayList<Integer>();
-		
-		String StatementType = new String(); // used to see if we are in IF or WHILE (used for labeling arrows in block diagram)
-	
-	}
 
 	int calculateCurrentBlockIndex()
 	{
@@ -87,24 +40,9 @@ public class Compiler
 		return index;
 	}
 
-	// Utilizing a stack to potentially keep the scope of blocks in which lines will be added to. 
-	Stack<Block> blockScopeStack = new Stack<Block>();
-
-	// setting a global statement type string to get some information in Line. 
-	// TODO: re-investigate this method, see if there's a way we can get the statement type from a non-global level 
-	Stack<String> currentStatementType = new Stack<String>();
-
 	// List of the unfinished paths which need to be merged later
 	// Used After every StatSequence to merge then and else blocks
 	private ArrayList<Integer> ChildlessParents = new ArrayList<Integer>();
-	
-	private class Line
-	{
-		String operator; // The beginning statement in IR (Ex. MOVE, MUL, WRITE)
-		Result SetVar = new Result();
-		ArrayList<Result> UsedVars = new ArrayList<Result>(); // something like that
-		String FunctionName;
-	}
 	
 	private java.util.HashMap< String, Vector<Array>> ArrayVariables = new java.util.HashMap< String, Vector<Array>>();
 	
@@ -249,21 +187,25 @@ public class Compiler
 		return;
 	}
 	
+	/*
+		This is some pseudocode on how I would implement a dominator tree. 
+		TreeData is essentially a node of the dominance tree. 
+		A node should be made up of of its block, as well as the list of its children. 
+
+		TODO: Write more about how to do the trees I think.
+
+	*/
+
 	private void CreatingDominanceTree() {
-		
-		//Unreadable, Only worry about the output which is: (this should be changed to be a global tree)
-		class treeData {
-			int node;
-			ArrayList<Block> children;
-		}
-		ArrayList<treeData> domTree = new ArrayList<treeData>();
+
+		ArrayList<TreeData> domTree = new ArrayList<TreeData>();
 		
 		// Enter the data for block 0 (starting block dominates all except self)
 		ArrayList<Block> tempBlockChain = new ArrayList<Block>(BlockChain);
 		tempBlockChain.remove(0);
 		
-		treeData curData = new treeData();
-		curData.node = 0;
+		TreeData curData = new TreeData();
+		curData.node = tempBlockChain.get(0); // get index 0 as the first node. maybe. i think?
 		curData.children = new ArrayList<Block>(tempBlockChain);
 		
 		domTree.add(curData);
@@ -303,8 +245,8 @@ public class Compiler
 					listOfDominated.remove(BlockChain.get(curNode).BlockNumber); // Now. I'm confused
 			}
 			
-			curData = new treeData();
-			curData.node = i;
+			curData = new TreeData();
+			curData.node = tempBlockChain.get(i); // is this right?
 			curData.children = new ArrayList<Block>(listOfDominated);
 			
 			domTree.add(curData);
@@ -312,8 +254,6 @@ public class Compiler
 		
 		// resulting list we care about
 		//domTree
-		
-		
 		
 	}
 
@@ -394,16 +334,7 @@ public class Compiler
 		tempLineNumbers.push(currentIndex);
 		
 		Result x_line = new Result(x);
-
 		Result y_line = new Result(y);
-
-		Result separateResult = new Result(result);
-		// separateResult.address = result.address;
-		// separateResult.fixuplocation = result.fixuplocation;
-		// separateResult.kind = result.kind;
-		// separateResult.lastSetInstruction = result.lastSetInstruction;
-		// separateResult.regnum = result.regnum;
-		// separateResult.scope = result.scope;
 
 		if (x_line.kind == "reg" && varInstructionMap.containsKey(x.varName))
 		{
@@ -854,11 +785,6 @@ public class Compiler
 		relation.value = A.value - B.value;
 		compute(DLX.CMP, relation, A, B);
 		
-
-		// TODO: We need a handle on vars A and B to do the comparison.
-		// 		 However, we also would greatly benefit from knowing if we are dealing with an if or a while.
-		// 		 A potential solution might be to use a stack of which statement type we are looking at. 
-		// 		 With enough pops or pushes, we would get back to knowing if we are at an if or a while. I think. Maybe. 
 		Line relationLine = new Line(); // A line created for our relational comparisons. 
 
 		BlockChain.get(BlockChain.size()-1).lines.add(relationLine);
@@ -868,15 +794,7 @@ public class Compiler
 		if (B.kind == "reg")
 		B.lastSetInstruction = varInstructionMap.get(B.varName);
 
-		Result a_line = A;
-		Result b_line = B;
-
-		a_line.varName = A.varName + "_" + Integer.toString(A.lastSetInstruction);
-		b_line.varName = B.varName + "_" + Integer.toString(B.lastSetInstruction);
-
 		relationLine.UsedVars.add(relation);
-		//relationLine.UsedVars.add(a_line);
-		//relationLine.UsedVars.add(b_line);
 		
 		if(A.kind == "reg")
 			DeallocateReg(A);
@@ -937,20 +855,12 @@ public class Compiler
 		result.lastSetInstruction = calculateCurrentBlockIndex() + 1;
 
 		String lineVarName = result.varName + "_" + Integer.toString(result.lastSetInstruction);
-		//result.varName = lineVarName;
 		assignLine.SetVar = result;
 		assignLine.SetVar.varName = lineVarName;
 
 		assignLine.operator = "MOVE";
 
 		BlockChain.get(BlockChain.size()-1).lines.add(assignLine);
-		
-		// if (setValue.kind == "reg")
-		// {
-		// 	// update the name 
-		// 	int setValueInstNumber = varInstructionMap.get(setValue.varName);
-		// 	setValue.varName = setValue.varName + Integer.toString(setValueInstNumber); // last time it was updated is the name
-		// }
 
 		//If we finish the function without a return
 		if(setValue == null) {
@@ -961,10 +871,6 @@ public class Compiler
 			assignLine.UsedVars.add(noReturn);
 		}
 		
-		// Temporary list of lines 
-		// In Compute, we add to that list. 
-		// Here, if that list is not empty, use that. 
-		// But if it is empty, use SetValue. (x*3) + (x*2)
 		assignLine.UsedVars.add(setValue);
 		
 		if (setValue.kind == "const") {
@@ -1302,27 +1208,22 @@ public class Compiler
 		String statementType = tokenMap.get(scanner.sym);
 		if(statementType == "let")
 		{
-			currentStatementType.add("let");
 			ASSIGNMENT();
 		}
 		else if(statementType == "call") {
-			currentStatementType.add("functionCall"); // Maybe move this after funccall, one line after? Perhaps it won't work entirely. Need to do additional testing.
 			Result faultyReturn = FUNCCALL();
 			DeallocateReg(faultyReturn);
 		}
 		else if(statementType == "if")
 		{
-			currentStatementType.add("if");
 			IFSTATEMENT();
 		}
 		else if(statementType == "while")
 		{
-			currentStatementType.add("while");
 			WHILESTMT();
 		}
 		else if (statementType == "return")
 		{
-			currentStatementType.add("while");
 			RETURNSTMT();
 		}
 		else
