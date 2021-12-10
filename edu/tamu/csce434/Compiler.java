@@ -186,15 +186,6 @@ public class Compiler
 		}
 		return;
 	}
-	
-	/*
-		This is some pseudocode on how I would implement a dominator tree. 
-		TreeData is essentially a node of the dominance tree. 
-		A node should be made up of of its block, as well as the list of its children. 
-
-		TODO: Write more about how to do the trees I think.
-
-	*/
 
 	private void CreatingDominanceTree() {
 
