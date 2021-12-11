@@ -5,6 +5,7 @@ import java.io.InputStreamReader;
 import java.io.FileOutputStream;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Stack;
 import java.util.Vector;
@@ -30,7 +31,7 @@ public class Compiler
 	
 	private ArrayList<Block> BlockChain = new ArrayList<Block>();
 
-	int calculateCurrentBlockIndex()
+	int calculateCurrentLineNumber()
 	{
 		int index = 0;
 		for (int i = 0; i < BlockChain.size(); i++)
@@ -98,7 +99,7 @@ public class Compiler
 					OutputFile.write(curBlock.StatementType.getBytes());
 					OutputFile.write(' ');
 				}
-				
+
 				// Printing the operator
 				OutputFile.write(curBlock.lines.get(i).operator.getBytes());
 				OutputFile.write(' ');
@@ -108,6 +109,10 @@ public class Compiler
 					OutputFile.write(curBlock.lines.get(i).SetVar.varName.getBytes());
 					OutputFile.write(' ');
 				}
+
+				if (curBlock.lines.get(i).operator == "PHI") {
+					OutputFile.write(":= (".getBytes());
+				}
 				
 				// Print the name of Other variables
 				if (curBlock.lines.get(i).UsedVars != null ) {
@@ -115,6 +120,10 @@ public class Compiler
 						OutputFile.write(curBlock.lines.get(i).UsedVars.get(j).varName.getBytes());
 						OutputFile.write(' ');
 					}
+				}
+				
+				if (curBlock.lines.get(i).operator == "PHI") {
+					OutputFile.write(") ".getBytes());
 				}
 				
 				if (curBlock.lines.get(i).operator == "call") {
@@ -187,38 +196,169 @@ public class Compiler
 		return;
 	}
 
+	// DOM TREE GLOBAL VAR arrayList 
+	ArrayList<TreeData> domTree = new ArrayList<TreeData>();
 
-    
-    // DFS here. Build a tree based on the first block. 
-    public void makeDominanceTree(TreeData td)
-    {
-        if (td == null)
-        {
-            System.err.println("There was a null TreeData node when making dominance tree");
-        }
-
-		TreeData firstBlock = td;
-		ArrayList<Block> visitedNodes = new ArrayList<>();
-		visitedNodes.add(td.node);
+	private Block getNextBlock( Block curBlock ) {
 		
-        if (td.node.childrenIndexes.size() >= 1 && !visitedNodes.contains(BlockChain.get(td.node.childrenIndexes.get(0))))
-		{
-			// If we have a child node, and we have not visited that yet, denote it as a TreeData node and add to the children. 
-			//TreeData child = new TreeData(BlockChain.get(td.node.childrenIndexes.get(0)));
-			td.children.add(BlockChain.get(td.node.childrenIndexes.get(0))); // Wait, I might be confusing myself. 
+		//Block nextBlock = new Block();
+
+		for (int i=0; i<domTree.size(); i++) {
+			
+			int blocky = domTree.get(i).getBlock().BlockNumber; // Has zero purpose but to exist
+			int blocky2 = curBlock.BlockNumber;
+			
+			if (blocky == blocky2) {
+				
+				if(domTree.get(i).children.size() != 0) {
+
+					// Get child and remove it from the list of children
+					Block nextBlock = domTree.get(i).children.get(0);
+					domTree.get(i).children.remove(0);
+
+					nextBlock.nodeCameFrom = domTree.get(i).getBlock();
+
+					int nx = nextBlock.BlockNumber;
+
+					return nextBlock;
+				}
+				else {
+					return domTree.get(i).node.nodeCameFrom;
+				}
+			}
+		}
+		return null;
+	}
+
+    private void AddingPHInodes() {
+    	
+    	// Create iDOM tree to parse
+    	Creating_IDominanceTree();
+
+		// This hold variable name and the most recently defined line
+    	HashMap< String, Integer > MostRecentlyDefinedVars = new HashMap<String, Integer>();
+		
+		// fixing the line numbers
+		int LineNumber = 0;
+    	
+    	// DFS on the Dominance tree
+		//Block curBlock = domTree.get(0).node;
+		Block curBlock = BlockChain.get(0);
+		if (curBlock != null) {
+
+			// Generate Phi
+			// if (curBlock.predecessors.size() >= 2) { //The blocks combine here, we need PHI
+			// 	for (String key : MostRecentlyDefinedVars.keySet()) {
+					
+			// 		// Creating a new Phi line for a variable that doesn't already have one
+					
+			// 		Line PhiLine = new Line();
+			// 		curBlock.lines.add(0, PhiLine);
+			// 		LineNumber++;
+
+			// 		PhiLine.operator = "PHI";
+
+			// 		// name of var + the current line we are creating 
+			// 		PhiLine.SetVar = new Result();
+			// 		PhiLine.SetVar.varName = key + "_" + Integer.toString(LineNumber);
+					
+			// 		Result oldVar = new Result();
+					
+			// 		PhiLine.UsedVars.add(oldVar);
+			// 		oldVar.varName = key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key));
+
+
+			// 		curBlock.phiMap.put(key, LineNumber);
+
+			// 		//Adding to an existing Phi line
+			// 		//curBlock.
+
+			// 		oldVar = new Result(); // Redefine OldVar? 
+			// 		PhiLine.UsedVars.add(oldVar);
+			// 		oldVar.varName = key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key));
+			// 	}
+			// }
+
+
+			// Check used variables and enter the most recently assigned var
+			for(int j=0; j<curBlock.lines.size(); j++) {
+
+				LineNumber++; // fixes the current Line number
+
+				for(int k=0; k<curBlock.lines.get(j).UsedVars.size(); k++) {
+
+					Line curLine = curBlock.lines.get(j);
+
+					// Assignments (fix the MostRecentlyDefinedVars by adding line numbers)
+					if (curLine.operator == "MOVE") {
+						if (curLine.SetVar != null) {
+							if (MostRecentlyDefinedVars.containsKey(curLine.SetVar.varName)){
+								MostRecentlyDefinedVars.replace(curLine.SetVar.varName, LineNumber);
+								curLine.SetVar.varName += "_" + Integer.toString(LineNumber);
+							}
+							else {
+								MostRecentlyDefinedVars.put(curLine.SetVar.varName, LineNumber);
+								curLine.SetVar.varName =curLine.SetVar.varName + "_" + Integer.toString(LineNumber);
+							}
+						}
+					}
+
+					// Check each variable and replace the names of the used vars with the most recently assigned values
+					String x = curLine.UsedVars.get(k).varName;
+					if (MostRecentlyDefinedVars.containsValue(x)){
+						int lineNum = MostRecentlyDefinedVars.get(curLine.UsedVars.get(k).varName);
+						curLine.UsedVars.get(k).varName = curLine.UsedVars.get(k).varName + "_" + Integer.toString(lineNum);
+					}
+				}
+			}
+
+			// recursion
+			curBlock = getNextBlock(curBlock);
 		}
     }
+    
+	/*
+	foreach variable v
+		HasAlready = { }
+		EverOnWorklist = { }
+		Worklist = { }
+		foreach node X containing assignment to v
+			EverOnWorklist = EverOnWorklist ∪ {X}
+			Worklist = Worklist ∪ {X}
+		while Worklist not empty
+			remove X from Worklist
+			foreach Y ∈ DF(X)
+			if Y ∉ HasAlready
+				insert φ-node for v at {Y}
+				HasAlready = HasAlready ∪ {Y}
+			if Y ∉ EverOnWorklist
+				Worklist = Worklist ∪ {Y}
+				EverOnWorklist = EverOnWorklist ∪ {Y}
+	*/
 
-	private void CreatingDominanceTree() {
+	private int DomTreeIndexFetch() 
+	{
+		for (int i=0; i<BlockChain.size(); i++) 
+		{
+			for (int j=0; j<domTree.size(); j++) 
+			{
+				if (BlockChain.get(i) == domTree.get(j).node)
+					return j;
 
-		ArrayList<TreeData> domTree = new ArrayList<TreeData>();
+			}
+		}
+		return -1; // not found (should never happen)
+	}
+
+	
+	private void Creating_IDominanceTree() {
 		
 		// Enter the data for block 0 (starting block dominates all except self)
 		ArrayList<Block> tempBlockChain = new ArrayList<Block>(BlockChain);
 		tempBlockChain.remove(0);
 		
 		TreeData curData = new TreeData();
-		curData.node = tempBlockChain.get(0); // get index 0 as the first node. maybe. i think?
+		curData.node = BlockChain.get(0); // get index 0 as the first node. maybe. i think?
 		curData.children = new ArrayList<Block>(tempBlockChain);
 		
 		domTree.add(curData);
@@ -246,7 +386,7 @@ public class Compiler
 				int curNode = nextVisited.get(0);
 				nextVisited.remove(0);
 				
-				for ( int j=0; j<tempBlockChain.get(curNode).childrenIndexes.size(); j++ ) {
+				for ( int j=0; j<tempBlockChain.get(curNode).childrenIndexes.size()-1; j++ ) {
 					if (!checkVisited.contains(tempBlockChain.get(curNode).childrenIndexes.get(j))) {
 						checkVisited.add(tempBlockChain.get(curNode).childrenIndexes.get(j)); // Block Number (not index)
 						nextVisited.add(tempBlockChain.get(curNode).childrenIndexes.get(j)); // Block Number
@@ -265,11 +405,27 @@ public class Compiler
 			domTree.add(curData);
 		}
 		
-		// resulting list we care about
-		//domTree
-		
-	}
+		// Creating the iDOM tree from the Dominance tree
+		for (int i=0; i<BlockChain.size(); i++) {
+			ArrayList<Block> tempTreeNodeChildren = new ArrayList<Block> ();
+			
+			int domTreeIndex = DomTreeIndexFetch();
 
+			// For each node, Check if a Block's dominated children are the same as the children of the Block
+			for(int j=0; j<BlockChain.get(i).childrenIndexes.size(); j++) {
+
+				for (int k=0; k<domTree.get(domTreeIndex).children.size(); k++) {
+
+					if (domTree.get(domTreeIndex).children.get(k).BlockNumber == BlockChain.get(i).childrenIndexes.get(j)) {
+						tempTreeNodeChildren.add(domTree.get(domTreeIndex).children.get(k));
+					}
+				}
+			}
+			
+			// This replaces the domtree children with only the immediate children of every node
+			domTree.get(domTreeIndex).children = tempTreeNodeChildren;
+		}	
+	}
 
 	// Constructor for the compiler
 	public Compiler(String args)
@@ -343,7 +499,7 @@ public class Compiler
 		// termLine is always temporary. 
 		// Use this in our temporary list. 
 		BlockChain.get(BlockChain.size()-1).lines.add(termLine);
-		int currentIndex = calculateCurrentBlockIndex();
+		int currentIndex = calculateCurrentLineNumber();
 		tempLineNumbers.push(currentIndex);
 		
 		Result x_line = new Result(x);
@@ -351,14 +507,14 @@ public class Compiler
 
 		if (x_line.kind == "reg" && varInstructionMap.containsKey(x.varName))
 		{
-			x_line.lastSetInstruction = varInstructionMap.get(x.varName);
-			x_line.varName = x.varName + "_" + Integer.toString(x_line.lastSetInstruction);
+			x_line.lineNumber = varInstructionMap.get(x.varName);
+			//x_line.varName = x.varName + "_" + Integer.toString(x_line.lineNumber);
 		}
 
 		if (y_line.kind == "reg" && varInstructionMap.containsKey(y.varName))
 		{
-			y_line.lastSetInstruction = varInstructionMap.get(y.varName);
-			y_line.varName = y.varName + "_" + Integer.toString(y_line.lastSetInstruction);
+			y_line.lineNumber = varInstructionMap.get(y.varName);
+			//y_line.varName = y.varName + "_" + Integer.toString(y_line.lineNumber);
 		}
 
 		if (x.kind == "const" && (y.kind == "reg" || y.kind == "arr")) {
@@ -395,8 +551,6 @@ public class Compiler
 			termLine.operator = DLX.mnemo[op];
 		}
 		result.varName = "(" + Integer.toString(currentIndex) + ")";
-
-		return;
 	}
 	
 	//Load values onto the stack
@@ -803,9 +957,9 @@ public class Compiler
 		BlockChain.get(BlockChain.size()-1).lines.add(relationLine);
 		
 		if (A.kind == "reg")
-		A.lastSetInstruction = varInstructionMap.get(A.varName);
+		A.lineNumber = varInstructionMap.get(A.varName);
 		if (B.kind == "reg")
-		B.lastSetInstruction = varInstructionMap.get(B.varName);
+		B.lineNumber = varInstructionMap.get(B.varName);
 
 		relationLine.UsedVars.add(relation);
 		
@@ -864,12 +1018,12 @@ public class Compiler
 		// Insert the assignment line after the expression lines have been created
 		Line assignLine = new Line();
 		
-		varInstructionMap.put(result.varName, calculateCurrentBlockIndex() + 1); // Result gets assigned a new value 
-		result.lastSetInstruction = calculateCurrentBlockIndex() + 1;
+		varInstructionMap.put(result.varName, calculateCurrentLineNumber() + 1); // Result gets assigned a new value 
+		result.lineNumber = calculateCurrentLineNumber() + 1;
 
-		String lineVarName = result.varName + "_" + Integer.toString(result.lastSetInstruction);
+		//String lineVarName = result.varName + "_" + Integer.toString(result.lineNumber);
 		assignLine.SetVar = result;
-		assignLine.SetVar.varName = lineVarName;
+		//assignLine.SetVar.varName = lineVarName;
 
 		assignLine.operator = "MOVE";
 
@@ -946,7 +1100,7 @@ public class Compiler
 			CallLine.UsedVars.add(holdInput);
 			
 			Result readVar = new Result();
-			readVar.varName = "(" + Integer.toString(calculateCurrentBlockIndex()) + ")";
+			readVar.varName = "(" + Integer.toString(calculateCurrentLineNumber()) + ")";
 			
 			return readVar;
 		}
@@ -958,9 +1112,11 @@ public class Compiler
 			
 			holdInput = EXPRESSION();
 			
-			holdInput.lastSetInstruction = varInstructionMap.get(holdInput.varName);
+			if (holdInput.kind == "reg")
+				holdInput.lineNumber = varInstructionMap.get(holdInput.varName);
+
 			Result holdInput_line = holdInput;
-			holdInput_line.varName = holdInput.varName + "_" + Integer.toString(holdInput.lastSetInstruction);
+			// holdInput_line.varName = holdInput.varName + "_" + Integer.toString(holdInput.lineNumber);
 			CallLine.UsedVars.add(holdInput);
 			
 			if (holdInput.kind == "const")
@@ -1115,7 +1271,7 @@ public class Compiler
 			
 			// adding elseBlock's index to the Parent's Children
 			BlockChain.get(parentIndex).childrenIndexes.add(BlockChain.size());
-			BlockChain.get(BlockChain.size()).predecessors.add(parentIndex);
+			BlockChain.get(BlockChain.size()-1).predecessors.add(parentIndex);
 			
 			scanner.Next();
 			UncondBraFwd(follow);
@@ -1144,7 +1300,7 @@ public class Compiler
 		CurBlock.BlockNumber = BlockChain.size();
 		while(ChildlessParents.size() != 0) {
 			BlockChain.get(ChildlessParents.get(0)).childrenIndexes.add(CurBlock.BlockNumber);
-			BlockChain.get(CurBlock.BlockNumber).predecessors.add(ChildlessParents.get(0));
+			BlockChain.get(CurBlock.BlockNumber-1).predecessors.add(ChildlessParents.get(0));
 			ChildlessParents.remove(0);
 		}
 		BlockChain.add(CurBlock);
@@ -1175,7 +1331,7 @@ public class Compiler
 		// Connect all of the unfinished paths back to the first whileBlock
 		while (ChildlessParents.size() != 0) {
 			BlockChain.get(ChildlessParents.get(0)).childrenIndexes.add(parentIndex);
-			BlockChain.get(parentIndex).predecessors.add(ChildlessParents.get(0));
+			BlockChain.get(parentIndex-1).predecessors.add(ChildlessParents.get(0));
 			ChildlessParents.remove(0);
 		}
 		
@@ -1629,6 +1785,7 @@ public class Compiler
         	scanner.Error("No EOF found.");
         scanner.closefile();
         
+		AddingPHInodes();
         
         //Creating textfile for the GUI
         try {
@@ -1672,7 +1829,7 @@ public class Compiler
         
         //Printing all of the DLX Instructions that we created
         for( int i=0; i < PC; i++) {
-        	System.out.print("(" + (i) + ")" + " " + DLX.disassemble( buf[i] ) + "\n");
+        	//System.out.print("(" + (i) + ")" + " " + DLX.disassemble( buf[i] ) + "\n");
         }
         
 		

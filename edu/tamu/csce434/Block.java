@@ -1,6 +1,7 @@
 package edu.tamu.csce434;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 
 public class Block
 {
@@ -10,4 +11,6 @@ public class Block
     ArrayList<Integer> predecessors = new ArrayList<Integer>();
     
     String StatementType = new String(); // used to see if we are in IF or WHILE (used for labeling arrows in block diagram)
+    HashMap<String, Integer> phiMap = new HashMap<>();
+    Block nodeCameFrom = null;
 }

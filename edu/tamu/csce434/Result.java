@@ -10,6 +10,7 @@ public class Result
     int fixuplocation;
     int value;
     int lastSetInstruction;
+    int lineNumber;
 
     Result ()
     {
@@ -21,6 +22,7 @@ public class Result
         fixuplocation = 0;
         value = 0;
         lastSetInstruction = 0;
+        lineNumber = 0;
     }
 
     Result(Result r)
@@ -33,5 +35,6 @@ public class Result
         this.fixuplocation = r.fixuplocation;
         this.value = r.value;
         this.lastSetInstruction = r.lastSetInstruction;
+        this.lineNumber = r.lineNumber;
     }
 }
