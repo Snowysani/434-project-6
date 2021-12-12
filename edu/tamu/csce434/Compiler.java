@@ -29,6 +29,7 @@ public class Compiler
 
 	static int M[] = new int [MemSize/4 - 1];
 	
+	private RegisterData RegColoring = new RegisterData();
 	private ArrayList<Block> BlockChain = new ArrayList<Block>();
 
 	int calculateCurrentLineNumber()
@@ -55,7 +56,6 @@ public class Compiler
 	}
 	
 	private edu.tamu.csce434.Scanner scanner;
-	private edu.tamu.csce434.RegisterData registertracker;
 
 	int inputNumber;
 	
@@ -198,6 +198,14 @@ public class Compiler
 
 	// DOM TREE GLOBAL VAR arrayList 
 	ArrayList<TreeData> domTree = new ArrayList<TreeData>();
+	
+	public class varData {
+		String variableName;
+		Integer startingLine = 0; // Line where the variable is assigned
+		Integer endingLine = 0; // Line where the variable is used
+	}
+
+	ArrayList<varData> varRange = new ArrayList<varData>();
 
 	private Block getNextBlock( Block curBlock ) {
 		
@@ -206,7 +214,7 @@ public class Compiler
 
 		for (int i=0; i<domTree.size(); i++) {
 			
-			int blocky = domTree.get(i).getBlock().BlockNumber; // Has zero purpose but to exist
+			int blocky = domTree.get(i).getBlock().BlockNumber;
 			int blocky2 = curBlock.BlockNumber;
 			
 			if (blocky == blocky2) {
@@ -214,13 +222,6 @@ public class Compiler
 				while(domTree.get(i).children.size() == 0) 
 				{
 					curBlock = domTree.get(i).node.nodeCameFrom;
-					
-					if(curBlock == null) 
-						return null;
-					
-					// Fix nodes with predecessors
-					if (curBlock.predecessors.size() >= 2)
-						FixingPHInodes(curBlock);
 					
 					return getNextBlock(curBlock);
 				}
@@ -245,14 +246,14 @@ public class Compiler
 			// check to see if our phiMap contains the needed variable
 			if (curBlock.phiMap.containsKey(key)) 
 			{
+				// Line relative to the current block
 				int index = curBlock.phiMap.get(key);
 				
 				boolean isAlreadyUsed = false;
 				for (int i=0; i<curBlock.lines.get(index).UsedVars.size(); i++)
 				{
 					// If we have a repeated variable, do not add it again
-					if (stringCompare( curBlock.lines.get(index).UsedVars.get(i).varName, (key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key))))) {
-						System.out.print("Here" + MostRecentlyDefinedVars.get(key));
+					if (stringCompare( curBlock.lines.get(index).UsedVars.get(i).varName, (key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key) ))) || stringCompare( curBlock.lines.get(index).SetVar.varName, (key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key) )))) {
 						isAlreadyUsed = true;
 						continue;
 					}
@@ -264,42 +265,74 @@ public class Compiler
 			 		curBlock.lines.get(index).UsedVars.add(oldVar);
 			 		oldVar.varName = key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key));
 				}
+				
+				// Put the old definition back into the most recently used
+				MostRecentlyDefinedVars.put(key, (curBlock.lines.get(index).lineNumber + 1));
+				
 			}
+			
+//			else 
+//			{
+//				int PHInum = 0;
+//					
+//		 		// First time we entered a Block, we are creating the PHI
+//		 		Line PhiLine = new Line();
+//		 		curBlock.lines.add(0 + PHInum, PhiLine);
+//		 		
+//		 		//setting up the initial keys with relative line numbers
+//		 		curBlock.phiMap.put(key, PHInum++);
+//		 		LineNumber++;
+//		 		
+//		 		// Elements to add to the line itself
+//		 		PhiLine.operator = "PHI";
+//
+//		 		// name of var + the current line we are creating 
+//		 		PhiLine.SetVar = new Result();
+//		 		PhiLine.SetVar.varName = key + "_" + Integer.toString(LineNumber);
+//				
+//		 		Result oldVar = new Result();
+//		 		PhiLine.UsedVars.add(oldVar);
+//		 		oldVar.varName = key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key));
+//		 		
+//		 		MostRecentlyDefinedVars.put(key, LineNumber);
+//			 		
+//				// fix the line numbers for the rest of the data
+//				LineNumber -= PHInum;
+//			}
 		}
 	}
 	
 	// This hold variable name and the most recently defined line
 	HashMap< String, Integer > MostRecentlyDefinedVars = new HashMap<String, Integer>();
 
+	// fixing the line numbers
+	int LineNumber = 0;
+	
     private void AddingPHInodes() {
     	
     	// Create iDOM tree to parse
     	Creating_IDominanceTree();
-		
-		// fixing the line numbers
-		int LineNumber = 0;
     	
     	// DFS on the Dominance tree
 		//Block curBlock = domTree.get(0).node;
 		Block curBlock = BlockChain.get(0);
+		
 		while (curBlock != null) {
-
+			
 			// Generate Phi
 			 if (curBlock.predecessors.size() >= 2) { //The blocks combine here, we need PHI
 			 	
-				int PHInum = 1;
+				int PHInum = 0;
 				for (String key : MostRecentlyDefinedVars.keySet()) {
 					
-			 		// Creating a new Phi line for a variable that doesn't already have one
-					
+			 		// First time we entered a Block, we are creating the PHI
 			 		Line PhiLine = new Line();
 			 		curBlock.lines.add(0 + PHInum, PhiLine);
 			 		
 			 		//setting up the initial keys with relative line numbers
 			 		curBlock.phiMap.put(key, PHInum++);
-			 		
 			 		LineNumber++;
-
+			 		
 			 		// Elements to add to the line itself
 			 		PhiLine.operator = "PHI";
 
@@ -310,17 +343,19 @@ public class Compiler
 			 		Result oldVar = new Result();
 			 		PhiLine.UsedVars.add(oldVar);
 			 		oldVar.varName = key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key));
-
 			 		
+			 		MostRecentlyDefinedVars.put(key, LineNumber);
 			 	}
+				// fix the line numbers for the rest of the data
+				LineNumber -= PHInum;
+				
 			}
 
 			// Check used variables and enter the most recently assigned var
 			for(int j=0; j<curBlock.lines.size(); j++) {
-
-				LineNumber++; // fixes the current Line number
-
+		 		
 				Line curLine = curBlock.lines.get(j);
+				curLine.lineNumber = LineNumber++;
 
 				// Assignments (fix the MostRecentlyDefinedVars by adding line numbers)
 				if (curLine.operator == "MOVE") {
@@ -331,7 +366,7 @@ public class Compiler
 						}
 						else {
 							MostRecentlyDefinedVars.put(curLine.SetVar.varName, LineNumber);
-							curLine.SetVar.varName =curLine.SetVar.varName + "_" + Integer.toString(LineNumber);
+							curLine.SetVar.varName = curLine.SetVar.varName + "_" + Integer.toString(LineNumber);
 						}
 					}
 				}
@@ -342,6 +377,15 @@ public class Compiler
 					if (MostRecentlyDefinedVars.containsKey(curLine.UsedVars.get(k).varName)){
 						int lineNum = MostRecentlyDefinedVars.get(curLine.UsedVars.get(k).varName);
 						curLine.UsedVars.get(k).varName = curLine.UsedVars.get(k).varName + "_" + Integer.toString(lineNum);
+					}
+				}
+			}
+			
+			// propagate the variable declaration to children
+			for (int i=0; i<domTree.size(); i++) {
+				if (domTree.get(i).getBlock().BlockNumber == curBlock.BlockNumber) {
+					for (int j=0; j<BlockChain.get(i).childrenIndexes.size(); j++) {
+						FixingPHInodes(BlockChain.get(BlockChain.get(i).childrenIndexes.get(j)));
 					}
 				}
 			}
@@ -966,8 +1010,11 @@ public class Compiler
 	}
 	
 	private Result RELATION() {
-		Block previousBlock = BlockChain.get(BlockChain.size() - 1);
-		ChildlessParents.add(previousBlock.BlockNumber);
+		
+		checkForAndRemoveEmptyBlocks();
+		
+		//Block previousBlock = BlockChain.get(BlockChain.size() - 1);
+		//ChildlessParents.add(previousBlock.BlockNumber);
 
 		Block relationBlock = new Block();
 		BlockChain.add(relationBlock);
@@ -1441,6 +1488,7 @@ public class Compiler
 	}
 	
 	private void STATSEQUENCE() {
+		
 		//Holds current token name
 		Block CurBlock = new Block();
 		CurBlock.BlockNumber = BlockChain.size();
