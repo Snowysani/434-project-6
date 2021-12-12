@@ -2,37 +2,11 @@ digraph  Main {
 
   node [shape=record fontname=Arial];
 
-  Block_0[label=" B0|1. MOVE a_1 22 \l2. MOVE b_2 22 \l3. MOVE c_3 22 \l4. CALL  ReadInput \l5. MOVE d_5 (4) \l"]
-  Block_1[label=" B1|6. CMP  a_1 b_2 \l7. BNE  (6) \l"]
-  Block_2[label=" B2|"]
-  Block_3[label=" B3|8. CMP  b_2 c_3 \l9. BNE  (8) \l"]
-  Block_4[label=" B4|"]
-  Block_5[label=" B5|10. CMP  c_3 d_5 \l11. BNE  (10) \l"]
-  Block_6[label=" B6|"]
-  Block_7[label=" B7|12. CMPI  a_1 0 \l13. BLE  (12) \l"]
-  Block_8[label=" B8|14. ADDI  b_2 2 \l15. MOVE b_15 (14) \l16. SUBI  a_1 1 \l17. MOVE a_17 (16) \l"]
-  Block_9[label=" B9|18. CALL  b_15 \l"]
-  Block_10[label=" B10|19. CALL  a_17 \l"]
-  Block_11[label=" B11|20. CALL  c_3 \l"]
-  Block_12[label=" B12|21. CALL  ReadInput \l22. MOVE d_22 (21) \l23. CALL  d_22 \l"]
-  Block_13[label=" B13|24. CALL  NewLine \l"]
+  Block_0[label=" B0|1. CMP  3 5 \l2. IF BGE  (1) \l"]
+  Block_1[label=" B1|3. CALL  3 \l"]
+  Block_2[label=" B2|4. CALL  5 \l"]
 
-  Block_0 -> Block_1
-  Block_1 -> Block_2
-  Block_1 -> Block_12
-  Block_2 -> Block_3
-  Block_3 -> Block_4
-  Block_3 -> Block_11
-  Block_4 -> Block_5
-  Block_5 -> Block_6
-  Block_5 -> Block_10
-  Block_6 -> Block_7
-  Block_7 -> Block_8
-  Block_7 -> Block_9
-  Block_8 -> Block_7
-  Block_9 -> Block_13
-  Block_10 -> Block_13
-  Block_11 -> Block_13
-  Block_12 -> Block_13
+  Block_0 -> Block_1[label="then"]
+  Block_0 -> Block_2[label="else"]
 
 }

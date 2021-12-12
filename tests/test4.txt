@@ -10,10 +10,10 @@ var max, i, curr;
         let curr <- call inputnum();
         if curr > max then
             let max <- curr; 
-        else
-            call outputnewline();
+        else // remove for (case 1)
+            call outputnewline(); // remove for (case 1)
         fi;
-        let i <- i + 1;
+        let i <- i + 1; // remove for (case 1 and 2)
     od;
 
     call outputnewline();

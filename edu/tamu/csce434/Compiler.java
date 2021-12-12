@@ -5,6 +5,7 @@ import java.io.InputStreamReader;
 import java.io.FileOutputStream;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Stack;
 import java.util.Vector;
@@ -28,52 +29,10 @@ public class Compiler
 
 	static int M[] = new int [MemSize/4 - 1];
 	
-	private class Result 
-	{
-		String varName;
-		String kind;
-		String scope;
-		int address;
-		int regnum;
-		int fixuplocation;
-		int value;
-		int lastSetInstruction;
-
-		Result ()
-		{
-			varName = "";
-			kind = "";
-			scope = "";
-			address = 0;
-			regnum = 0;
-			fixuplocation = 0;
-			value = 0;
-			lastSetInstruction = 0;
-		}
-
-		Result(Result r)
-		{
-			this.varName = r.varName;
-			this.kind = r.kind;
-			this.scope = r.scope;
-			this.address = r.address;
-			this.regnum = r.regnum;
-			this.fixuplocation = r.fixuplocation;
-			this.value = r.value;
-			this.lastSetInstruction = r.lastSetInstruction;
-		}
-	}
-	
+	private RegisterData RegColoring = new RegisterData();
 	private ArrayList<Block> BlockChain = new ArrayList<Block>();
 
-	private class Block
-	{
-		int BlockNumber;
-		ArrayList<Line> lines = new ArrayList<Line>(); // list of lines that are in that block
-		ArrayList<Integer> childrenIndexes = new ArrayList<Integer>(); // this is fine
-	}
-
-	int calculateCurrentBlockIndex()
+	int calculateCurrentLineNumber()
 	{
 		int index = 0;
 		for (int i = 0; i < BlockChain.size(); i++)
@@ -83,27 +42,38 @@ public class Compiler
 		return index;
 	}
 
-	// Utilizing a stack to potentially keep the scope of blocks in which lines will be added to. 
-	Stack<Block> blockScopeStack = new Stack<Block>();
-
-	// setting a global statement type string to get some information in Line. 
-	// TODO: re-investigate this method, see if there's a way we can get the statement type from a non-global level 
-	Stack<String> currentStatementType = new Stack<String>();
+	void updateAllLineNumbersFromLineNumber (int ln)
+	{
+		int numLines = 0;
+		// This function takes in a line number, and updates all other lines after it. 
+		// Iterate through each block, and the lines that make it up.
+		// If that line's line number is greater than or equal to the input, reduce it by one. 
+		for (Block a : BlockChain)
+		{
+			for (Line l : a.lines)
+			{
+				if (l.SetVar.lineNumber >= ln)
+				{
+					//l.SetVar.lineNumber -= 1;
+					for (Result used : l.UsedVars)
+					{
+						//used.lineNumber -= 1;
+					}
+				}
+				if (l.UsedVars.get(0).varName.charAt(0) == '(')
+				{
+					// If it's a temporary usedVar, remove the temporary number down by one as well. 
+					String tempName = l.UsedVars.get(0).varName.replaceAll("[^0-9]", "");
+					int lineNum = Integer.parseInt(tempName);
+					//l.UsedVars.get(0).varName = "(" + Integer.toString(lineNum - 1) + ")";
+				}
+			}
+		}
+	}
 
 	// List of the unfinished paths which need to be merged later
 	// Used After every StatSequence to merge then and else blocks
 	private ArrayList<Integer> ChildlessParents = new ArrayList<Integer>();
-	
-	private class Line
-	{
-		Boolean isRelational = false;
-		String operator; // The beginning statement in IR (Ex. MOVE, MUL, WRITE)
-		Result SetVar = new Result();
-		// This is probably not needed, we can set operator to MOVE if assignment
-		String statmentType; // utilize a statement type so we know if it's an assignment, maybe.
-		ArrayList<Result> UsedVars = new ArrayList<Result>(); // something like that
-		String FunctionName;
-	}
 	
 	private java.util.HashMap< String, Vector<Array>> ArrayVariables = new java.util.HashMap< String, Vector<Array>>();
 	
@@ -135,6 +105,10 @@ public class Compiler
 	
 	private Vector<String> preDefIdents = new Vector<String>();
 	
+	Boolean constantPropSwitch = true;
+	Boolean constantFoldingSwitch = true;
+	private HashMap<String, Integer> constPropagationMap = new HashMap<>();
+	private HashMap<String, Boolean> canBePropagatedMap = new HashMap<>();
 	
 	// Writing Line Data to the output file
 	private int instructionNumber = 1;
@@ -153,6 +127,12 @@ public class Compiler
 					continue;
 				}	
 				
+				// Printing if or while if aplicable
+				if (i == curBlock.lines.size()-1 && (curBlock.StatementType == "IF" || curBlock.StatementType == "WHILE")) {
+					OutputFile.write(curBlock.StatementType.getBytes());
+					OutputFile.write(' ');
+				}
+
 				// Printing the operator
 				OutputFile.write(curBlock.lines.get(i).operator.getBytes());
 				OutputFile.write(' ');
@@ -162,6 +142,10 @@ public class Compiler
 					OutputFile.write(curBlock.lines.get(i).SetVar.varName.getBytes());
 					OutputFile.write(' ');
 				}
+
+				if (curBlock.lines.get(i).operator == "PHI") {
+					OutputFile.write(":= ( ".getBytes());
+				}
 				
 				// Print the name of Other variables
 				if (curBlock.lines.get(i).UsedVars != null ) {
@@ -169,6 +153,10 @@ public class Compiler
 						OutputFile.write(curBlock.lines.get(i).UsedVars.get(j).varName.getBytes());
 						OutputFile.write(' ');
 					}
+				}
+				
+				if (curBlock.lines.get(i).operator == "PHI") {
+					OutputFile.write(") ".getBytes());
 				}
 				
 				if (curBlock.lines.get(i).operator == "call") {
@@ -203,6 +191,35 @@ public class Compiler
         		
         		OutputFile.write("Block_".getBytes());
         		OutputFile.write(String.valueOf(curBlock.childrenIndexes.get(i)).getBytes());
+        		
+        		// if we have if/while stmt, we need to add names to edges
+        		if (curBlock.StatementType == "IF") {
+        			if (curBlock.childrenIndexes.size() == 2) {
+        				if (i == 0) {
+        					OutputFile.write("[label=\"then\"]".getBytes());
+        				}
+        				else { //i == 1
+        					OutputFile.write("[label=\"else\"]".getBytes());
+        				}
+        			}
+        			else { // should have only one child
+        				OutputFile.write("[label=\"then\"]".getBytes());
+        			}
+        		}
+        		else if (curBlock.StatementType == "WHILE") {
+        			if (curBlock.childrenIndexes.size() == 2) {
+        				if (i == 0) {
+        					OutputFile.write("[label=\"true\"]".getBytes());
+        				}
+        				else { //i == 1
+        					OutputFile.write("[label=\"false\"]".getBytes());
+        				}
+        			}
+        			else {
+        				OutputFile.write("[label=\"true\"]".getBytes());
+        			}
+        		}
+        		
         		OutputFile.write('\n');
 			}
 		}
@@ -212,6 +229,387 @@ public class Compiler
 		return;
 	}
 
+	// DOM TREE GLOBAL VAR arrayList 
+	ArrayList<TreeData> domTree = new ArrayList<TreeData>();
+	
+	public class varData {
+		String variableName;
+		Integer startingLine = 0; // Line where the variable is assigned
+		Integer endingLine = 0; // Line where the variable is used
+	}
+
+	ArrayList<varData> varRange = new ArrayList<varData>();
+
+	private Block getNextBlock( Block curBlock ) {
+		
+		if(curBlock == null) 
+			return null;	
+
+		for (int i=0; i<domTree.size(); i++) {
+			
+			int blocky = domTree.get(i).getBlock().BlockNumber;
+			int blocky2 = curBlock.BlockNumber;
+			
+			if (blocky == blocky2) {
+				
+				while(domTree.get(i).children.size() == 0) 
+				{
+					curBlock = domTree.get(i).node.nodeCameFrom;
+					
+					return getNextBlock(curBlock);
+				}
+					
+				// Get child and remove it from the list of children
+				Block nextBlock = domTree.get(i).children.get(0);
+				domTree.get(i).children.remove(0);
+
+				nextBlock.nodeCameFrom = domTree.get(i).node;
+
+				return nextBlock;
+
+			}	
+		}
+		return null;
+	}
+
+	private void removeAndUpdateLinesAfterLineNumber(int linenum)
+	{
+		int lineCounter = 0;
+		for (Block b : BlockChain)
+		{
+			for (Line l : b.lines)
+			{
+				lineCounter++;
+				if (lineCounter > linenum)
+				{
+					l.SetVar.lineNumber -= 1;
+					for (Result r : l.UsedVars)
+					{
+						if (r.varName.charAt(r.varName.length() - 1) == ')')
+						{
+							// then we know it's a temporary. 
+							// first strip it of the non-numerics (the parentheses)
+							String tempName = r.varName.replaceAll("[^0-9]", "");
+							int lineNum = Integer.parseInt(tempName);
+							r.varName = "(" + Integer.toString(lineNum - 1) + ")";
+						}
+					}
+				}
+			}
+		}
+	}
+	private void propagateOverBlockchain()
+	{
+		int lineCount = 0;
+		for (Block b : BlockChain) // for each block
+		{
+			
+			for (int i = 0; i < b.lines.size(); i++) // for each line 
+			{
+				lineCount++;
+				Line l = b.lines.get(i);
+				if (l.operator.equals("MOVE") && canBePropagatedMap.containsKey(l.SetVar.varName) && canBePropagatedMap.get(l.SetVar.varName))
+				{
+					// if it's a move, remove the line.
+					b.lines.remove(l);
+					lineCount--;
+					i--;
+					removeAndUpdateLinesAfterLineNumber(lineCount);
+				}
+				for (Result r : l.UsedVars) // for the used vars
+				{
+					if (canBePropagatedMap.containsKey(r.varName) && canBePropagatedMap.get(r.varName))
+					{
+						// If we can propagate that var, do so every time its used. 
+						r.varName = Integer.toString(constPropagationMap.get(r.varName));
+					}
+				}
+			}
+		}
+	}
+	private void updateBlockNumbersAfterNumber(int blocknum)
+	{
+		for (Block b : BlockChain)
+		{
+			if (b.BlockNumber >= blocknum)
+			{
+				b.BlockNumber -= 1;
+				for (int i = b.childrenIndexes.size() - 1; i >= 0; i--)
+				{
+					if (b.childrenIndexes.get(i) > blocknum)
+					{
+						int child = b.childrenIndexes.get(i);
+						b.childrenIndexes.remove(i);
+						b.childrenIndexes.add(i, child - 1);
+					}
+				}
+
+				for (int i = b.predecessors.size() - 1; i >= 0; i--)
+				{
+					if (b.predecessors.get(i) > blocknum)
+					{
+						int pred = b.predecessors.get(i);
+						b.predecessors.remove(i);
+						b.predecessors.add(i, pred - 1);
+					}
+				}
+			}
+		}
+	}
+	private void updateAndRemoveEmptyPhiBlocks()
+	{
+		
+		for (int i = 0; i < BlockChain.size(); i++)
+		{
+			Block b = BlockChain.get(i);
+			if (b.lines.size() == 0)
+			{
+				int bn = b.BlockNumber;
+				// update block numbers after bn 
+				BlockChain.remove(b);
+				updateBlockNumbersAfterNumber(bn);
+				i--;
+			}
+		}
+	}
+
+	private void FixingPHInodes(Block curBlock)
+	{
+		for (String key : MostRecentlyDefinedVars.keySet())
+		{
+			// check to see if our phiMap contains the needed variable
+			if (curBlock.phiMap.containsKey(key)) 
+			{
+				// Line relative to the current block
+				int index = curBlock.phiMap.get(key);
+				
+				boolean isAlreadyUsed = false;
+				for (int i=0; i<curBlock.lines.get(index).UsedVars.size(); i++)
+				{
+					// If we have a repeated variable, do not add it again
+					if (stringCompare( curBlock.lines.get(index).UsedVars.get(i).varName, (key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key) ))) || stringCompare( curBlock.lines.get(index).SetVar.varName, (key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key) )))) {
+						isAlreadyUsed = true;
+						continue;
+					}
+				}
+				if (!isAlreadyUsed) 
+				{
+					Result oldVar = new Result();
+					
+			 		curBlock.lines.get(index).UsedVars.add(oldVar);
+			 		oldVar.varName = key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key));
+				}
+				
+				// Put the old definition back into the most recently used
+				MostRecentlyDefinedVars.put(key, (curBlock.lines.get(index).lineNumber + 1));
+				
+			}
+		}
+	}
+	
+	// This hold variable name and the most recently defined line
+	HashMap< String, Integer > MostRecentlyDefinedVars = new HashMap<String, Integer>();
+
+	// fixing the line numbers
+	int LineNumber = 0;
+	
+    private void AddingPHInodes() {
+    	
+    	// Create iDOM tree to parse
+    	Creating_IDominanceTree();
+    	
+    	// DFS on the Dominance tree
+		//Block curBlock = domTree.get(0).node;
+		Block curBlock = BlockChain.get(0);
+		
+		while (curBlock != null) {
+			
+			// Generate Phi
+			 if (curBlock.predecessors.size() >= 2) { //The blocks combine here, we need PHI
+			 	
+				int PHInum = 0;
+				for (String key : MostRecentlyDefinedVars.keySet()) {
+					
+			 		// First time we entered a Block, we are creating the PHI
+			 		Line PhiLine = new Line();
+			 		curBlock.lines.add(0 + PHInum, PhiLine);
+			 		
+			 		//setting up the initial keys with relative line numbers
+			 		curBlock.phiMap.put(key, PHInum++);
+			 		LineNumber++;
+			 		
+			 		// Elements to add to the line itself
+			 		PhiLine.operator = "PHI";
+
+			 		// name of var + the current line we are creating 
+			 		PhiLine.SetVar = new Result();
+			 		PhiLine.SetVar.varName = key + "_" + Integer.toString(LineNumber);
+					
+			 		Result oldVar = new Result();
+			 		PhiLine.UsedVars.add(oldVar);
+			 		oldVar.varName = key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key));
+			 		
+			 		MostRecentlyDefinedVars.put(key, LineNumber);
+			 	}
+				// fix the line numbers for the rest of the data
+				LineNumber -= PHInum;
+				
+			}
+
+			// Check used variables and enter the most recently assigned var
+			for(int j=0; j<curBlock.lines.size(); j++) {
+		 		
+				Line curLine = curBlock.lines.get(j);
+				curLine.lineNumber = LineNumber++;
+
+				// Assignments (fix the MostRecentlyDefinedVars by adding line numbers)
+				if (curLine.operator == "MOVE") {
+					if (curLine.SetVar != null) {
+						
+						MostRecentlyDefinedVars.put(curLine.SetVar.varName, LineNumber);
+						curLine.SetVar.varName = curLine.SetVar.varName + "_" + Integer.toString(LineNumber);
+
+						if (constantPropSwitch && isNumeric(curLine.UsedVars.get(0).varName))
+						{
+							constPropagationMap.put(curLine.SetVar.varName, curLine.UsedVars.get(0).value);
+							canBePropagatedMap.put(curLine.SetVar.varName, true);
+						}
+					}
+				}
+				
+				for(int k=0; k<curLine.UsedVars.size(); k++) {
+
+					// Check each variable and replace the names of the used vars with the most recently assigned values
+					if (MostRecentlyDefinedVars.containsKey(curLine.UsedVars.get(k).varName))
+					{
+						int lineNum = MostRecentlyDefinedVars.get(curLine.UsedVars.get(k).varName);
+						curLine.UsedVars.get(k).varName = curLine.UsedVars.get(k).varName + "_" + Integer.toString(lineNum);
+
+						if (
+							constantPropSwitch 
+							&& constPropagationMap.containsKey(curLine.UsedVars.get(k).varName) 
+							&& (curLine.operator.equals("CMP") || curLine.operator.equals("CMPI"))
+							&& curBlock.predecessors.size() >= 2) // if we are in a while that comes back, we cant really use that for constant prop.
+						{
+							// CONSTANT PROPAGATION
+							// Mark it as unable to be propagated because it's used in CMPI
+							canBePropagatedMap.put(curLine.UsedVars.get(k).varName, false);
+						}
+					}
+				}
+			}
+			
+			// propagate the variable declaration to children
+			for (int i=0; i<domTree.size(); i++) {
+				if (domTree.get(i).getBlock().BlockNumber == curBlock.BlockNumber) {
+					for (int j=0; j<BlockChain.get(i).childrenIndexes.size(); j++) {
+						FixingPHInodes(BlockChain.get(BlockChain.get(i).childrenIndexes.get(j)));
+					}
+				}
+			}
+
+			// recursion
+			curBlock = getNextBlock(curBlock);
+		}
+    }
+
+	private int DomTreeIndexFetch(int i) 
+	{
+
+		for (int j=0; j<domTree.size(); j++) 
+		{
+			if (BlockChain.get(i) == domTree.get(j).node)
+				return j;
+
+		}
+		return -1; // not found (should never happen)
+	}
+
+	
+	private void Creating_IDominanceTree() {
+		
+		// Enter the data for block 0 (starting block dominates all except self)
+		ArrayList<Block> tempBlockChain = new ArrayList<Block>(BlockChain);
+		tempBlockChain.remove(0);
+		
+		TreeData curData = new TreeData();
+		curData.node = BlockChain.get(0); // get index 0 as the first node. maybe. i think?
+		curData.children = new ArrayList<Block>(tempBlockChain);
+		
+		domTree.add(curData);
+		
+		// Starting Domination Algorithm
+		for (int i=1; i<BlockChain.size(); i++) {
+			
+			// holds the blocks that we have already seen, so we don't come back
+			ArrayList<Integer> checkVisited = new ArrayList<Integer>();
+			checkVisited.add(0);
+			
+			// Acts as a stack and stores the next location to search
+			ArrayList<Integer> nextVisited = new ArrayList<Integer>();
+			nextVisited.add(0);
+			
+			// this will be the final list of dominated, so all the nodes we couldn't reach
+			ArrayList<Block> listOfDominated = new ArrayList<Block>(BlockChain);
+			listOfDominated.remove(i);
+			
+			// DFS starting at node 0
+			while(nextVisited.size() != 0) {
+				
+				int curNode = nextVisited.get(0);
+				
+				if(curNode == i) {
+					nextVisited.remove(0);
+					continue;
+				}
+				
+				int size = BlockChain.get(curNode).childrenIndexes.size();
+				
+				for ( int j=0; j<size; j++ ) {
+					
+					if (!checkVisited.contains(BlockChain.get(curNode).childrenIndexes.get(j))) {
+						checkVisited.add(BlockChain.get(curNode).childrenIndexes.get(j)); // Block Number (not index)
+						nextVisited.add(BlockChain.get(curNode).childrenIndexes.get(j)); // Block Number
+					}
+				}
+				
+				for ( int j=0; j<listOfDominated.size(); j++ ) {
+					if (listOfDominated.get(j).BlockNumber == curNode) {
+						listOfDominated.remove(j); // Now. I'm confused
+					}
+				}
+				
+				nextVisited.remove(0);
+			}
+			
+			curData = new TreeData();
+			curData.node = BlockChain.get(i); // is this right?
+			curData.children = new ArrayList<Block>(listOfDominated);
+			
+			domTree.add(curData);
+		}
+		
+		// Creating the iDOM tree from the Dominance tree
+		for (int i=0; i<BlockChain.size(); i++) {
+			ArrayList<Block> tempTreeNodeChildren = new ArrayList<Block> ();
+			
+			int domTreeIndex = DomTreeIndexFetch(i);
+
+			// For each node, Check if a Block's dominated children are the same as the children of the Block
+			for(int j=0; j<BlockChain.get(i).childrenIndexes.size(); j++) {
+
+				for (int k=0; k<domTree.get(domTreeIndex).children.size(); k++) {
+					
+					if (domTree.get(domTreeIndex).children.get(k).BlockNumber == BlockChain.get(i).childrenIndexes.get(j)) {
+						tempTreeNodeChildren.add(domTree.get(domTreeIndex).children.get(k));
+					}
+				}
+			}
+			// This replaces the domtree children with only the immediate children of every node
+			domTree.get(domTreeIndex).children = tempTreeNodeChildren;
+		}	
+
+	}
 
 	// Constructor for the compiler
 	public Compiler(String args)
@@ -285,31 +683,22 @@ public class Compiler
 		// termLine is always temporary. 
 		// Use this in our temporary list. 
 		BlockChain.get(BlockChain.size()-1).lines.add(termLine);
-		int currentIndex = calculateCurrentBlockIndex();
+		int currentIndex = calculateCurrentLineNumber();
 		tempLineNumbers.push(currentIndex);
 		
 		Result x_line = new Result(x);
-
 		Result y_line = new Result(y);
-
-		Result separateResult = new Result(result);
-		// separateResult.address = result.address;
-		// separateResult.fixuplocation = result.fixuplocation;
-		// separateResult.kind = result.kind;
-		// separateResult.lastSetInstruction = result.lastSetInstruction;
-		// separateResult.regnum = result.regnum;
-		// separateResult.scope = result.scope;
 
 		if (x_line.kind == "reg" && varInstructionMap.containsKey(x.varName))
 		{
-			x_line.lastSetInstruction = varInstructionMap.get(x.varName);
-			x_line.varName = x.varName + "_" + Integer.toString(x_line.lastSetInstruction);
+			x_line.lineNumber = varInstructionMap.get(x.varName);
+			//x_line.varName = x.varName + "_" + Integer.toString(x_line.lineNumber);
 		}
 
 		if (y_line.kind == "reg" && varInstructionMap.containsKey(y.varName))
 		{
-			y_line.lastSetInstruction = varInstructionMap.get(y.varName);
-			y_line.varName = y.varName + "_" + Integer.toString(y_line.lastSetInstruction);
+			y_line.lineNumber = varInstructionMap.get(y.varName);
+			//y_line.varName = y.varName + "_" + Integer.toString(y_line.lineNumber);
 		}
 
 		if (x.kind == "const" && (y.kind == "reg" || y.kind == "arr")) {
@@ -346,8 +735,6 @@ public class Compiler
 			termLine.operator = DLX.mnemo[op];
 		}
 		result.varName = "(" + Integer.toString(currentIndex) + ")";
-
-		return;
 	}
 	
 	//Load values onto the stack
@@ -363,7 +750,9 @@ public class Compiler
 		if(x.kind == "reg") {
 			AllocateReg(x);
 			if(x.scope == functionName && x.scope != "main")
+			{
 				buf[PC++] = DLX.assemble(DLX.LDW, x.regnum, FP, x.address);
+			}
 			else
 				buf[PC++] = DLX.assemble(DLX.LDW, x.regnum, DP, x.address);
 		}
@@ -375,6 +764,7 @@ public class Compiler
 			else {
 				AllocateReg(x);
 				buf[PC++] = DLX.assemble(DLX.ADDI, x.regnum, 0, x.value);
+				// propagate this up potentially?
 			}
 		}
 		return x;
@@ -575,6 +965,7 @@ public class Compiler
 		// do this is the ident returns a variable
 		if(!peek("openbracket")) {
 			Load(newLocation);
+			// CONSTANT FOLDING HERE PERHAPS?
 			return newLocation;
 		}
 		
@@ -679,10 +1070,25 @@ public class Compiler
 			factor2 = FACTOR();	
 			
 			if (s == "times") {
-				compute(DLX.MUL, factor, factor, factor2);
+				
+				// CONSTANT FOLDING
+				if(constantFoldingSwitch && factor.kind == "const" && factor2.kind == "const") 
+					factor.value *= factor2.value;
+				
+				// This is the normal function if not constant folding
+				else {
+					compute(DLX.MUL, factor, factor, factor2);
+				}
 			}
 			else {
-				compute(DLX.DIV, factor, factor, factor2);
+				
+				// CONSTANT FOLDING (2)
+				if(constantFoldingSwitch && factor.kind == "const" && factor2.kind == "const") {
+					factor.value /= factor2.value;
+				}
+				else {
+					compute(DLX.DIV, factor, factor, factor2);
+				}
 			}
 			if (factor2.kind == "reg")
 				DeallocateReg(factor2);
@@ -708,10 +1114,24 @@ public class Compiler
 			term2 = TERM();
 			
 			if (s == "plus") {
-				compute(DLX.ADD, term, term, term2);
+				
+				// CONSTANT FOLDING (3) 
+				if(constantFoldingSwitch && term.kind == "const" && term2.kind == "const") {
+					term.value += term2.value;
+				}
+				else {
+					compute(DLX.ADD, term, term, term2);
+				}
 			}
 			else {
-				compute(DLX.SUB, term, term, term2);	
+				
+				// Constant Folding (4)
+				if(constantFoldingSwitch && term.kind == "const" && term2.kind == "const") {
+					term.value -= term2.value;
+				}
+				else {
+					compute(DLX.SUB, term, term, term2);
+				}
 			}
 			if (term2.kind == "reg")
 				DeallocateReg(term2);
@@ -722,8 +1142,8 @@ public class Compiler
 	}
 	
 	private Result RELATION() {
-		Block previousBlock = BlockChain.get(BlockChain.size() - 1);
-		ChildlessParents.add(previousBlock.BlockNumber);
+		
+		checkForAndRemoveEmptyBlocks();
 
 		Block relationBlock = new Block();
 		BlockChain.add(relationBlock);
@@ -731,6 +1151,7 @@ public class Compiler
 
 		while(ChildlessParents.size() != 0) {
 			BlockChain.get(ChildlessParents.get(0)).childrenIndexes.add(relationBlock.BlockNumber);
+			BlockChain.get(relationBlock.BlockNumber).predecessors.add(ChildlessParents.get(0));
 			ChildlessParents.remove(0);
 		}
 
@@ -748,30 +1169,16 @@ public class Compiler
 		relation.value = A.value - B.value;
 		compute(DLX.CMP, relation, A, B);
 		
-
-		// TODO: We need a handle on vars A and B to do the comparison.
-		// 		 However, we also would greatly benefit from knowing if we are dealing with an if or a while.
-		// 		 A potential solution might be to use a stack of which statement type we are looking at. 
-		// 		 With enough pops or pushes, we would get back to knowing if we are at an if or a while. I think. Maybe. 
 		Line relationLine = new Line(); // A line created for our relational comparisons. 
-		relationLine.isRelational = true; 
-		relationLine.statmentType = "relation";
+
 		BlockChain.get(BlockChain.size()-1).lines.add(relationLine);
 		
 		if (A.kind == "reg")
-		A.lastSetInstruction = varInstructionMap.get(A.varName);
+		A.lineNumber = varInstructionMap.get(A.varName);
 		if (B.kind == "reg")
-		B.lastSetInstruction = varInstructionMap.get(B.varName);
-
-		Result a_line = A;
-		Result b_line = B;
-
-		a_line.varName = A.varName + "_" + Integer.toString(A.lastSetInstruction);
-		b_line.varName = B.varName + "_" + Integer.toString(B.lastSetInstruction);
+		B.lineNumber = varInstructionMap.get(B.varName);
 
 		relationLine.UsedVars.add(relation);
-		//relationLine.UsedVars.add(a_line);
-		//relationLine.UsedVars.add(b_line);
 		
 		if(A.kind == "reg")
 			DeallocateReg(A);
@@ -828,24 +1235,16 @@ public class Compiler
 		// Insert the assignment line after the expression lines have been created
 		Line assignLine = new Line();
 		
-		varInstructionMap.put(result.varName, calculateCurrentBlockIndex() + 1); // Result gets assigned a new value 
-		result.lastSetInstruction = calculateCurrentBlockIndex() + 1;
+		varInstructionMap.put(result.varName, calculateCurrentLineNumber() + 1); // Result gets assigned a new value 
+		result.lineNumber = calculateCurrentLineNumber() + 1;
 
-		String lineVarName = result.varName + "_" + Integer.toString(result.lastSetInstruction);
-		//result.varName = lineVarName;
+		//String lineVarName = result.varName + "_" + Integer.toString(result.lineNumber);
 		assignLine.SetVar = result;
-		assignLine.SetVar.varName = lineVarName;
+		//assignLine.SetVar.varName = lineVarName;
 
 		assignLine.operator = "MOVE";
 
 		BlockChain.get(BlockChain.size()-1).lines.add(assignLine);
-		
-		// if (setValue.kind == "reg")
-		// {
-		// 	// update the name 
-		// 	int setValueInstNumber = varInstructionMap.get(setValue.varName);
-		// 	setValue.varName = setValue.varName + Integer.toString(setValueInstNumber); // last time it was updated is the name
-		// }
 
 		//If we finish the function without a return
 		if(setValue == null) {
@@ -856,10 +1255,6 @@ public class Compiler
 			assignLine.UsedVars.add(noReturn);
 		}
 		
-		// Temporary list of lines 
-		// In Compute, we add to that list. 
-		// Here, if that list is not empty, use that. 
-		// But if it is empty, use SetValue. (x*3) + (x*2)
 		assignLine.UsedVars.add(setValue);
 		
 		if (setValue.kind == "const") {
@@ -922,7 +1317,7 @@ public class Compiler
 			CallLine.UsedVars.add(holdInput);
 			
 			Result readVar = new Result();
-			readVar.varName = "(" + Integer.toString(calculateCurrentBlockIndex()) + ")";
+			readVar.varName = "(" + Integer.toString(calculateCurrentLineNumber()) + ")";
 			
 			return readVar;
 		}
@@ -934,9 +1329,11 @@ public class Compiler
 			
 			holdInput = EXPRESSION();
 			
-			holdInput.lastSetInstruction = varInstructionMap.get(holdInput.varName);
+			if (holdInput.kind == "reg")
+				holdInput.lineNumber = varInstructionMap.get(holdInput.varName);
+
 			Result holdInput_line = holdInput;
-			holdInput_line.varName = holdInput.varName + "_" + Integer.toString(holdInput.lastSetInstruction);
+			// holdInput_line.varName = holdInput.varName + "_" + Integer.toString(holdInput.lineNumber);
 			CallLine.UsedVars.add(holdInput);
 			
 			if (holdInput.kind == "const")
@@ -1064,8 +1461,11 @@ public class Compiler
 		//creating the two initial jump instructions and setting fixuplocation
 		Result negJump;
 		negJump = RELATION();
+		
 		parentIndex = BlockChain.size()-1;
 
+		BlockChain.get(parentIndex).StatementType = "IF";
+		
 		expect("then");
 		
 		// adding thenBlock's index to the Parent's Children
@@ -1114,11 +1514,13 @@ public class Compiler
 		
 		Block CurBlock = new Block();
 		CurBlock.BlockNumber = BlockChain.size();
+		BlockChain.add(CurBlock);
+		
 		while(ChildlessParents.size() != 0) {
 			BlockChain.get(ChildlessParents.get(0)).childrenIndexes.add(CurBlock.BlockNumber);
+			BlockChain.get(CurBlock.BlockNumber).predecessors.add(ChildlessParents.get(0));
 			ChildlessParents.remove(0);
 		}
-		BlockChain.add(CurBlock);
 		
 		return;
 	}
@@ -1136,7 +1538,8 @@ public class Compiler
 		
 		parentIndex = BlockChain.size()-1;
 		BlockChain.get(parentIndex).childrenIndexes.add(BlockChain.size());
-
+		
+		BlockChain.get(parentIndex).StatementType = "WHILE";
 		
 		expect("do");
 		STATSEQUENCE();
@@ -1145,6 +1548,7 @@ public class Compiler
 		// Connect all of the unfinished paths back to the first whileBlock
 		while (ChildlessParents.size() != 0) {
 			BlockChain.get(ChildlessParents.get(0)).childrenIndexes.add(parentIndex);
+			BlockChain.get(parentIndex).predecessors.add(ChildlessParents.get(0));
 			ChildlessParents.remove(0);
 		}
 		
@@ -1189,27 +1593,22 @@ public class Compiler
 		String statementType = tokenMap.get(scanner.sym);
 		if(statementType == "let")
 		{
-			currentStatementType.add("let");
 			ASSIGNMENT();
 		}
 		else if(statementType == "call") {
-			currentStatementType.add("functionCall"); // Maybe move this after funccall, one line after? Perhaps it won't work entirely. Need to do additional testing.
 			Result faultyReturn = FUNCCALL();
 			DeallocateReg(faultyReturn);
 		}
 		else if(statementType == "if")
 		{
-			currentStatementType.add("if");
 			IFSTATEMENT();
 		}
 		else if(statementType == "while")
 		{
-			currentStatementType.add("while");
 			WHILESTMT();
 		}
 		else if (statementType == "return")
 		{
-			currentStatementType.add("while");
 			RETURNSTMT();
 		}
 		else
@@ -1218,6 +1617,7 @@ public class Compiler
 	}
 	
 	private void STATSEQUENCE() {
+		
 		//Holds current token name
 		Block CurBlock = new Block();
 		CurBlock.BlockNumber = BlockChain.size();
@@ -1226,6 +1626,7 @@ public class Compiler
 		//If there was a previous block(s), add this index as a child to the parents
 		while (ChildlessParents.size() != 0) {
 			BlockChain.get(ChildlessParents.get(0)).childrenIndexes.add(CurBlock.BlockNumber);
+			BlockChain.get(CurBlock.BlockNumber).predecessors.add(ChildlessParents.get(0));
 			ChildlessParents.remove(0);
 		}
 		
@@ -1251,7 +1652,6 @@ public class Compiler
 		checkForAndRemoveEmptyBlocks();
 		
 	}
-	
 	
 	private int GetTotalArraySize() {
 
@@ -1323,7 +1723,6 @@ public class Compiler
 			}
 		}
 		else {
-			
 			ChildlessParents.add(BlockChain.get(BlockChain.size()-1).BlockNumber);
 		}
 	}
@@ -1350,7 +1749,6 @@ public class Compiler
 				numEntries += FunctionLocals.get(functionName).size();
 			}
 			// check every every array in the table
-
 		}
 		else 
 		{
@@ -1369,11 +1767,9 @@ public class Compiler
 				numEntries = 0;
 			}
 			numEntries += identMap.size(); 
-			
 		}
 		return -((numEntries) * 4);
 	}
-	
 	
 	private void VARDECL() {
 		
@@ -1561,6 +1957,19 @@ public class Compiler
 		
 		expect("end");
 	}
+
+	public static boolean isNumeric(String strNum) { // https://www.baeldung.com/java-check-string-number
+		// this function checks if a string is numerical. 
+		if (strNum == null) {
+			return false;
+		}
+		try {
+			double d = Double.parseDouble(strNum);
+		} catch (NumberFormatException nfe) {
+			return false;
+		}
+		return true;
+	}
 	
 	
 	// Implement this function to start compiling your input file
@@ -1602,6 +2011,12 @@ public class Compiler
         	scanner.Error("No EOF found.");
         scanner.closefile();
         
+		AddingPHInodes();
+		if (constantPropSwitch)
+		{
+			propagateOverBlockchain();
+			updateAndRemoveEmptyPhiBlocks();
+		}
         
         //Creating textfile for the GUI
         try {
@@ -1645,7 +2060,7 @@ public class Compiler
         
         //Printing all of the DLX Instructions that we created
         for( int i=0; i < PC; i++) {
-        	System.out.print("(" + (i) + ")" + " " + DLX.disassemble( buf[i] ) + "\n");
+        	//System.out.print("(" + (i) + ")" + " " + DLX.disassemble( buf[i] ) + "\n");
         }
         
 		
