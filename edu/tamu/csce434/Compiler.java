@@ -53,7 +53,7 @@ public class Compiler
 			{
 				if (l.SetVar.lineNumber >= ln)
 				{
-					l.SetVar.lineNumber -= 1;
+					//l.SetVar.lineNumber -= 1;
 					for (Result used : l.UsedVars)
 					{
 						//used.lineNumber -= 1;
@@ -64,7 +64,7 @@ public class Compiler
 					// If it's a temporary usedVar, remove the temporary number down by one as well. 
 					String tempName = l.UsedVars.get(0).varName.replaceAll("[^0-9]", "");
 					int lineNum = Integer.parseInt(tempName);
-					l.UsedVars.get(0).varName = "(" + Integer.toString(lineNum - 1) + ")";
+					//l.UsedVars.get(0).varName = "(" + Integer.toString(lineNum - 1) + ")";
 				}
 			}
 		}
@@ -105,8 +105,9 @@ public class Compiler
 	
 	private Vector<String> preDefIdents = new Vector<String>();
 	
-	Boolean constantPropSwitch = true;
+	Boolean constantPropSwitch = false;
 	private HashMap<String, Integer> constPropagationMap = new HashMap<>();
+	private HashMap<String, Boolean> canBePropagatedMap = new HashMap<>();
 	
 	// Writing Line Data to the output file
 	private int instructionNumber = 1;
@@ -268,6 +269,24 @@ public class Compiler
 		}
 		return null;
 	}
+
+	private void propagateOverBlockchain()
+	{
+		for (Block b : BlockChain) // for each block
+		{
+			for (Line l : b.lines) // for each line 
+			{
+				for (Result r : l.UsedVars) // for the used vars
+				{
+					if (canBePropagatedMap.containsKey(r.varName) && canBePropagatedMap.get(r.varName))
+					{
+						// If we can propagate that var, do so every time its used. 
+						r.varName = Integer.toString(constPropagationMap.get(r.varName));
+					}
+				}
+			}
+		}
+	}
 	
 	private void FixingPHInodes(Block curBlock)
 	{
@@ -365,14 +384,16 @@ public class Compiler
 							{
 								// if the used variable is numeric, and it's a move, it's a static assignment. 
 								// therefore, we can optimize and replace it with the value.
-								LineNumber--;
+								//LineNumber--;
 
 								constPropagationMap.put(curLine.SetVar.varName + "_" + Integer.toString(LineNumber), curLine.UsedVars.get(0).value);
-								curBlock.lines.remove(curLine);
-								j--; // go back one since we remove the line and are iterating over the lines.size() 
+								canBePropagatedMap.put(curLine.SetVar.varName + "_" + Integer.toString(LineNumber), true);
+								//curBlock.lines.remove(curLine);
+								//j--; // go back one since we remove the line and are iterating over the lines.size() 
 								
 								// Now fix up all the lines from that point on. 
-								updateAllLineNumbersFromLineNumber(LineNumber);
+								//updateAllLineNumbersFromLineNumber(LineNumber);
+								//checkForAndRemoveEmptyBlocks();
 							}
 						}
 						
@@ -384,32 +405,37 @@ public class Compiler
 				for(int k=0; k<curLine.UsedVars.size(); k++) {
 
 					// Check each variable and replace the names of the used vars with the most recently assigned values
-					String op = curLine.operator;
+					/*String op = curLine.operator;
 					if (constantPropSwitch && !constPropagationMap.containsKey(curLine.UsedVars.get(0).varName))
 					{
 						// Check if that usedVar name exists in the map with the line number attached.
 						String tempVarName = curLine.UsedVars.get(0).varName;
-						tempVarName += "_" + Integer.toString(curLine.UsedVars.get(0).lineNumber - 1);
+						tempVarName += "_" + Integer.toString(curLine.UsedVars.get(0).lineNumber);
 						if (constPropagationMap.containsKey(tempVarName))
 						{
-							curLine.UsedVars.get(0).varName = Integer.toString(constPropagationMap.get(tempVarName));
+							curLine.UsedVars.get(0).varName = "propagated:" + tempVarName;//Integer.toString(constPropagationMap.get(tempVarName));
 							//continue;
 						}
 					}
-					else if (MostRecentlyDefinedVars.containsKey(curLine.UsedVars.get(k).varName)){
+					else */
+					if (MostRecentlyDefinedVars.containsKey(curLine.UsedVars.get(k).varName)){
 						int lineNum = MostRecentlyDefinedVars.get(curLine.UsedVars.get(k).varName);
 						String varn = curLine.UsedVars.get(k).varName;
 						curLine.UsedVars.get(k).varName = curLine.UsedVars.get(k).varName + "_" + Integer.toString(lineNum);
-						if (constantPropSwitch && constPropagationMap.containsKey(curLine.UsedVars.get(k).varName))
+						if (
+							constantPropSwitch 
+							&& constPropagationMap.containsKey(curLine.UsedVars.get(k).varName) 
+							&& (curLine.operator.equals("CMP") || curLine.operator.equals("CMPI"))
+							&& curBlock.predecessors.size() >= 2) // if we are in a while that comes back, we cant really use that for constant prop.
 						{
 							// CONSTANT PROPAGATION
-							// Need to remove this reference and use the value instead. 
-							curLine.UsedVars.get(k).varName = Integer.toString(constPropagationMap.get(curLine.UsedVars.get(k).varName));
+							// Mark it as unable to be propagated because it's used in CMPI
+							canBePropagatedMap.put(curLine.UsedVars.get(k).varName, false);
+							//curLine.UsedVars.get(k).varName = "propagated2:" + Integer.toString(constPropagationMap.get(curLine.UsedVars.get(k).varName));
 						}
 					}
 				}
 			}
-
 			// recursion
 			curBlock = getNextBlock(curBlock);
 		}
@@ -1907,6 +1933,10 @@ public class Compiler
         scanner.closefile();
         
 		AddingPHInodes();
+		if (constantPropSwitch)
+		{
+			propagateOverBlockchain();
+		}
         
         //Creating textfile for the GUI
         try {
