@@ -41,6 +41,31 @@ public class Compiler
 		return index;
 	}
 
+	void updateAllLineNumbersFromLineNumber (int ln)
+	{
+		int numLines = 0;
+		// This function takes in a line number, and updates all other lines after it. 
+		// Iterate through each block, and the lines that make it up.
+		// If that line's line number is greater than or equal to the input, reduce it by one. 
+		for (Block a : BlockChain)
+		{
+			for (Line l : a.lines)
+			{
+				if (l.SetVar.lineNumber >= ln)
+				{
+					l.SetVar.lineNumber -= 1;
+				}
+				if (l.UsedVars.get(0).varName.charAt(0) == '(')
+				{
+					// If it's a temporary usedVar, remove the temporary number down by one as well. 
+					String tempName = l.UsedVars.get(0).varName.replaceAll("[^0-9]", "");
+					int lineNum = Integer.parseInt(tempName);
+					l.UsedVars.get(0).varName = "(" + Integer.toString(lineNum - 1) + ")";
+				}
+			}
+		}
+	}
+
 	// List of the unfinished paths which need to be merged later
 	// Used After every StatSequence to merge then and else blocks
 	private ArrayList<Integer> ChildlessParents = new ArrayList<Integer>();
@@ -327,7 +352,7 @@ public class Compiler
 				// Assignments (fix the MostRecentlyDefinedVars by adding line numbers)
 				if (curLine.operator == "MOVE") {
 					if (curLine.SetVar != null) {
-						
+
 						if (constantPropSwitch) // CONSTANT PROPAGATION
 						{
 							// CONSTANT PROPAGATION:
@@ -336,30 +361,46 @@ public class Compiler
 							if (isNumeric(curLine.UsedVars.get(0).varName))
 							{
 								// if the used variable is numeric, and it's a move, it's a static assignment. 
-								// therefore, we can optimize and replace it with the value. 
-								constPropagationMap.put(curLine.SetVar.varName, curLine.UsedVars.get(0).value);
-								curBlock.lines.remove(curLine);
+								// therefore, we can optimize and replace it with the value.
 								LineNumber--;
+
+								constPropagationMap.put(curLine.SetVar.varName + "_" + Integer.toString(LineNumber), curLine.UsedVars.get(0).value);
+								curBlock.lines.remove(curLine);
+								
+								// Now fix up all the lines from that point on. 
+								updateAllLineNumbersFromLineNumber(LineNumber);
 							}
 						}
 						
-						if (MostRecentlyDefinedVars.containsKey(curLine.SetVar.varName)){
-							MostRecentlyDefinedVars.replace(curLine.SetVar.varName, LineNumber);
-							curLine.SetVar.varName += "_" + Integer.toString(LineNumber);
-						}
-						else {
-							MostRecentlyDefinedVars.put(curLine.SetVar.varName, LineNumber);
-							curLine.SetVar.varName =curLine.SetVar.varName + "_" + Integer.toString(LineNumber);
-						}
+						// I think this conditional is repeated logic. "Put" overwrites anyways. Commenting out for now. 
+						// if (MostRecentlyDefinedVars.containsKey(curLine.SetVar.varName)){
+						// 	MostRecentlyDefinedVars.replace(curLine.SetVar.varName, LineNumber);
+						// 	curLine.SetVar.varName += "_" + Integer.toString(LineNumber);
+						// }
+						// else {
+						// 	MostRecentlyDefinedVars.put(curLine.SetVar.varName, LineNumber);
+						// 	curLine.SetVar.varName =curLine.SetVar.varName + "_" + Integer.toString(LineNumber);
+						// }
+						
+						MostRecentlyDefinedVars.put(curLine.SetVar.varName, LineNumber);
+						curLine.SetVar.varName = curLine.SetVar.varName + "_" + Integer.toString(LineNumber);
 					}
 				}
 				
 				for(int k=0; k<curLine.UsedVars.size(); k++) {
 
 					// Check each variable and replace the names of the used vars with the most recently assigned values
+					String op = curLine.operator;
 					if (MostRecentlyDefinedVars.containsKey(curLine.UsedVars.get(k).varName)){
 						int lineNum = MostRecentlyDefinedVars.get(curLine.UsedVars.get(k).varName);
+						String varn = curLine.UsedVars.get(k).varName;
 						curLine.UsedVars.get(k).varName = curLine.UsedVars.get(k).varName + "_" + Integer.toString(lineNum);
+						if (constantPropSwitch && constPropagationMap.containsKey(curLine.UsedVars.get(k).varName))
+						{
+							// CONSTANT PROPAGATION
+							// Need to remove this reference and use the value instead. 
+							curLine.UsedVars.get(k).varName = Integer.toString(constPropagationMap.get(curLine.UsedVars.get(k).varName));
+						}
 					}
 				}
 			}
