@@ -313,7 +313,6 @@ public class Compiler
 					lineCount--;
 					i--;
 					removeAndUpdateLinesAfterLineNumber(lineCount);
-					//continue;
 				}
 				for (Result r : l.UsedVars) // for the used vars
 				{
@@ -321,15 +320,57 @@ public class Compiler
 					{
 						// If we can propagate that var, do so every time its used. 
 						r.varName = Integer.toString(constPropagationMap.get(r.varName));
-						
-						//b.lines.remove(l);
-						//removeAndUpdateLinesAfterLineNumber(lineCount);
 					}
 				}
 			}
 		}
 	}
-	
+	private void updateBlockNumbersAfterNumber(int blocknum)
+	{
+		for (Block b : BlockChain)
+		{
+			if (b.BlockNumber >= blocknum)
+			{
+				b.BlockNumber -= 1;
+				for (int i = b.childrenIndexes.size() - 1; i >= 0; i--)
+				{
+					if (b.childrenIndexes.get(i) > blocknum)
+					{
+						int child = b.childrenIndexes.get(i);
+						b.childrenIndexes.remove(i);
+						b.childrenIndexes.add(i, child - 1);
+					}
+				}
+
+				for (int i = b.predecessors.size() - 1; i >= 0; i--)
+				{
+					if (b.predecessors.get(i) > blocknum)
+					{
+						int pred = b.predecessors.get(i);
+						b.predecessors.remove(i);
+						b.predecessors.add(i, pred - 1);
+					}
+				}
+			}
+		}
+	}
+	private void updateAndRemoveEmptyPhiBlocks()
+	{
+		
+		for (int i = 0; i < BlockChain.size(); i++)
+		{
+			Block b = BlockChain.get(i);
+			if (b.lines.size() == 0)
+			{
+				int bn = b.BlockNumber;
+				// update block numbers after bn 
+				BlockChain.remove(b);
+				updateBlockNumbersAfterNumber(bn);
+				i--;
+			}
+		}
+	}
+
 	private void FixingPHInodes(Block curBlock)
 	{
 		for (String key : MostRecentlyDefinedVars.keySet())
@@ -1102,8 +1143,10 @@ public class Compiler
 	}
 	
 	private Result RELATION() {
-		Block previousBlock = BlockChain.get(BlockChain.size() - 1);
-		ChildlessParents.add(previousBlock.BlockNumber);
+		checkForAndRemoveEmptyBlocks();
+
+		//Block previousBlock = BlockChain.get(BlockChain.size() - 1);
+		//ChildlessParents.add(previousBlock.BlockNumber);
 
 		Block relationBlock = new Block();
 		BlockChain.add(relationBlock);
@@ -1978,6 +2021,7 @@ public class Compiler
 		if (constantPropSwitch)
 		{
 			propagateOverBlockchain();
+			updateAndRemoveEmptyPhiBlocks();
 		}
         
         //Creating textfile for the GUI

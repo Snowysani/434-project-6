@@ -2,13 +2,11 @@ digraph  Main {
 
   node [shape=record fontname=Arial];
 
-  Block_0[label=" B0|"]
-  Block_1[label=" B1|1. CMP  3 5 \l2. IF BGE  (1) \l"]
-  Block_2[label=" B2|3. CALL  3 \l"]
-  Block_3[label=" B3|4. CALL  5 \l"]
+  Block_0[label=" B0|1. CMP  3 5 \l2. IF BGE  (1) \l"]
+  Block_1[label=" B1|3. CALL  3 \l"]
+  Block_2[label=" B2|4. CALL  5 \l"]
 
-  Block_0 -> Block_1
-  Block_1 -> Block_2[label="then"]
-  Block_1 -> Block_3[label="else"]
+  Block_0 -> Block_1[label="then"]
+  Block_0 -> Block_2[label="else"]
 
 }
