@@ -403,35 +403,6 @@ public class Compiler
 				MostRecentlyDefinedVars.put(key, (curBlock.lines.get(index).lineNumber + 1));
 				
 			}
-			
-//			else 
-//			{
-//				int PHInum = 0;
-//					
-//		 		// First time we entered a Block, we are creating the PHI
-//		 		Line PhiLine = new Line();
-//		 		curBlock.lines.add(0 + PHInum, PhiLine);
-//		 		
-//		 		//setting up the initial keys with relative line numbers
-//		 		curBlock.phiMap.put(key, PHInum++);
-//		 		LineNumber++;
-//		 		
-//		 		// Elements to add to the line itself
-//		 		PhiLine.operator = "PHI";
-//
-//		 		// name of var + the current line we are creating 
-//		 		PhiLine.SetVar = new Result();
-//		 		PhiLine.SetVar.varName = key + "_" + Integer.toString(LineNumber);
-//				
-//		 		Result oldVar = new Result();
-//		 		PhiLine.UsedVars.add(oldVar);
-//		 		oldVar.varName = key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key));
-//		 		
-//		 		MostRecentlyDefinedVars.put(key, LineNumber);
-//			 		
-//				// fix the line numbers for the rest of the data
-//				LineNumber -= PHInum;
-//			}
 		}
 	}
 	
@@ -493,17 +464,10 @@ public class Compiler
 				// Assignments (fix the MostRecentlyDefinedVars by adding line numbers)
 				if (curLine.operator == "MOVE") {
 					if (curLine.SetVar != null) {
-						if (MostRecentlyDefinedVars.containsKey(curLine.SetVar.varName)){
-							//MostRecentlyDefinedVars.replace(curLine.SetVar.varName, LineNumber);
-							//curLine.SetVar.varName += "_" + Integer.toString(LineNumber);
-						}
-						else {
-							//MostRecentlyDefinedVars.put(curLine.SetVar.varName, LineNumber);
-							//curLine.SetVar.varName = curLine.SetVar.varName + "_" + Integer.toString(LineNumber);
-						}
 						
 						MostRecentlyDefinedVars.put(curLine.SetVar.varName, LineNumber);
 						curLine.SetVar.varName = curLine.SetVar.varName + "_" + Integer.toString(LineNumber);
+
 						if (constantPropSwitch && isNumeric(curLine.UsedVars.get(0).varName))
 						{
 							constPropagationMap.put(curLine.SetVar.varName, curLine.UsedVars.get(0).value);
@@ -515,10 +479,11 @@ public class Compiler
 				for(int k=0; k<curLine.UsedVars.size(); k++) {
 
 					// Check each variable and replace the names of the used vars with the most recently assigned values
-					if (MostRecentlyDefinedVars.containsKey(curLine.UsedVars.get(k).varName)){
+					if (MostRecentlyDefinedVars.containsKey(curLine.UsedVars.get(k).varName))
+					{
 						int lineNum = MostRecentlyDefinedVars.get(curLine.UsedVars.get(k).varName);
-						String varn = curLine.UsedVars.get(k).varName;
 						curLine.UsedVars.get(k).varName = curLine.UsedVars.get(k).varName + "_" + Integer.toString(lineNum);
+
 						if (
 							constantPropSwitch 
 							&& constPropagationMap.containsKey(curLine.UsedVars.get(k).varName) 
@@ -528,7 +493,6 @@ public class Compiler
 							// CONSTANT PROPAGATION
 							// Mark it as unable to be propagated because it's used in CMPI
 							canBePropagatedMap.put(curLine.UsedVars.get(k).varName, false);
-							//curLine.UsedVars.get(k).varName = "propagated2:" + Integer.toString(constPropagationMap.get(curLine.UsedVars.get(k).varName));
 						}
 					}
 				}
@@ -547,25 +511,6 @@ public class Compiler
 			curBlock = getNextBlock(curBlock);
 		}
     }
-    
-	/*
-	foreach variable v
-		HasAlready = { }
-		EverOnWorklist = { }
-		Worklist = { }
-		foreach node X containing assignment to v
-			EverOnWorklist = EverOnWorklist ∪ {X}
-			Worklist = Worklist ∪ {X}
-		while Worklist not empty
-			remove X from Worklist
-			foreach Y ∈ DF(X)
-			if Y ∉ HasAlready
-				insert φ-node for v at {Y}
-				HasAlready = HasAlready ∪ {Y}
-			if Y ∉ EverOnWorklist
-				Worklist = Worklist ∪ {Y}
-				EverOnWorklist = EverOnWorklist ∪ {Y}
-	*/
 
 	private int DomTreeIndexFetch(int i) 
 	{
@@ -1198,9 +1143,6 @@ public class Compiler
 	private Result RELATION() {
 		
 		checkForAndRemoveEmptyBlocks();
-		
-		//Block previousBlock = BlockChain.get(BlockChain.size() - 1);
-		//ChildlessParents.add(previousBlock.BlockNumber);
 
 		Block relationBlock = new Block();
 		BlockChain.add(relationBlock);
@@ -1710,7 +1652,6 @@ public class Compiler
 		
 	}
 	
-	
 	private int GetTotalArraySize() {
 
 		if(arraySizes.size() == 0)
@@ -1807,7 +1748,6 @@ public class Compiler
 				numEntries += FunctionLocals.get(functionName).size();
 			}
 			// check every every array in the table
-
 		}
 		else 
 		{
@@ -1826,11 +1766,9 @@ public class Compiler
 				numEntries = 0;
 			}
 			numEntries += identMap.size(); 
-			
 		}
 		return -((numEntries) * 4);
 	}
-	
 	
 	private void VARDECL() {
 		
