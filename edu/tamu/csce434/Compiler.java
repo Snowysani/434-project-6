@@ -967,10 +967,25 @@ public class Compiler
 			factor2 = FACTOR();	
 			
 			if (s == "times") {
-				compute(DLX.MUL, factor, factor, factor2);
+				
+				//TODO: This is the constant folding position for multiplication (there are three more)
+				if(factor.kind == "const" && factor2.kind == "const") 
+					factor.value *= factor2.value;
+				
+				// This is the normal function if not constant folding
+				else {
+					compute(DLX.MUL, factor, factor, factor2);
+				}
 			}
 			else {
-				compute(DLX.DIV, factor, factor, factor2);
+				
+				//TODO: Constant folding position (2)
+				if(factor.kind == "const" && factor2.kind == "const") {
+					factor.value /= factor2.value;
+				}
+				else {
+					compute(DLX.DIV, factor, factor, factor2);
+				}
 			}
 			if (factor2.kind == "reg")
 				DeallocateReg(factor2);
@@ -996,10 +1011,24 @@ public class Compiler
 			term2 = TERM();
 			
 			if (s == "plus") {
-				compute(DLX.ADD, term, term, term2);
+				
+				//TODO: Constant folding position (3)
+				if(term.kind == "const" && term2.kind == "const") {
+					term.value += term2.value;
+				}
+				else {
+					compute(DLX.ADD, term, term, term2);
+				}
 			}
 			else {
-				compute(DLX.SUB, term, term, term2);	
+				
+				//TODO: Constant folding position (4)
+				if(term.kind == "const" && term2.kind == "const") {
+					term.value -= term2.value;
+				}
+				else {
+					compute(DLX.SUB, term, term, term2);
+				}
 			}
 			if (term2.kind == "reg")
 				DeallocateReg(term2);
