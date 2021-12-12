@@ -29,6 +29,7 @@ public class Compiler
 
 	static int M[] = new int [MemSize/4 - 1];
 	
+	private RegisterData RegColoring = new RegisterData();
 	private ArrayList<Block> BlockChain = new ArrayList<Block>();
 
 	int calculateCurrentLineNumber()
@@ -84,7 +85,6 @@ public class Compiler
 	}
 	
 	private edu.tamu.csce434.Scanner scanner;
-	private edu.tamu.csce434.RegisterData registertracker;
 
 	int inputNumber;
 	
@@ -230,6 +230,14 @@ public class Compiler
 
 	// DOM TREE GLOBAL VAR arrayList 
 	ArrayList<TreeData> domTree = new ArrayList<TreeData>();
+	
+	public class varData {
+		String variableName;
+		Integer startingLine = 0; // Line where the variable is assigned
+		Integer endingLine = 0; // Line where the variable is used
+	}
+
+	ArrayList<varData> varRange = new ArrayList<varData>();
 
 	private Block getNextBlock( Block curBlock ) {
 		
@@ -238,7 +246,7 @@ public class Compiler
 
 		for (int i=0; i<domTree.size(); i++) {
 			
-			int blocky = domTree.get(i).getBlock().BlockNumber; // Has zero purpose but to exist
+			int blocky = domTree.get(i).getBlock().BlockNumber;
 			int blocky2 = curBlock.BlockNumber;
 			
 			if (blocky == blocky2) {
@@ -246,13 +254,6 @@ public class Compiler
 				while(domTree.get(i).children.size() == 0) 
 				{
 					curBlock = domTree.get(i).node.nodeCameFrom;
-					
-					if(curBlock == null) 
-						return null;
-					
-					// Fix nodes with predecessors
-					if (curBlock.predecessors.size() >= 2)
-						FixingPHInodes(curBlock);
 					
 					return getNextBlock(curBlock);
 				}
@@ -378,14 +379,14 @@ public class Compiler
 			// check to see if our phiMap contains the needed variable
 			if (curBlock.phiMap.containsKey(key)) 
 			{
+				// Line relative to the current block
 				int index = curBlock.phiMap.get(key);
 				
 				boolean isAlreadyUsed = false;
 				for (int i=0; i<curBlock.lines.get(index).UsedVars.size(); i++)
 				{
 					// If we have a repeated variable, do not add it again
-					if (stringCompare( curBlock.lines.get(index).UsedVars.get(i).varName, (key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key))))) {
-						System.out.print("Here" + MostRecentlyDefinedVars.get(key));
+					if (stringCompare( curBlock.lines.get(index).UsedVars.get(i).varName, (key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key) ))) || stringCompare( curBlock.lines.get(index).SetVar.varName, (key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key) )))) {
 						isAlreadyUsed = true;
 						continue;
 					}
@@ -397,42 +398,74 @@ public class Compiler
 			 		curBlock.lines.get(index).UsedVars.add(oldVar);
 			 		oldVar.varName = key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key));
 				}
+				
+				// Put the old definition back into the most recently used
+				MostRecentlyDefinedVars.put(key, (curBlock.lines.get(index).lineNumber + 1));
+				
 			}
+			
+//			else 
+//			{
+//				int PHInum = 0;
+//					
+//		 		// First time we entered a Block, we are creating the PHI
+//		 		Line PhiLine = new Line();
+//		 		curBlock.lines.add(0 + PHInum, PhiLine);
+//		 		
+//		 		//setting up the initial keys with relative line numbers
+//		 		curBlock.phiMap.put(key, PHInum++);
+//		 		LineNumber++;
+//		 		
+//		 		// Elements to add to the line itself
+//		 		PhiLine.operator = "PHI";
+//
+//		 		// name of var + the current line we are creating 
+//		 		PhiLine.SetVar = new Result();
+//		 		PhiLine.SetVar.varName = key + "_" + Integer.toString(LineNumber);
+//				
+//		 		Result oldVar = new Result();
+//		 		PhiLine.UsedVars.add(oldVar);
+//		 		oldVar.varName = key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key));
+//		 		
+//		 		MostRecentlyDefinedVars.put(key, LineNumber);
+//			 		
+//				// fix the line numbers for the rest of the data
+//				LineNumber -= PHInum;
+//			}
 		}
 	}
 	
 	// This hold variable name and the most recently defined line
 	HashMap< String, Integer > MostRecentlyDefinedVars = new HashMap<String, Integer>();
 
+	// fixing the line numbers
+	int LineNumber = 0;
+	
     private void AddingPHInodes() {
     	
     	// Create iDOM tree to parse
     	Creating_IDominanceTree();
-		
-		// fixing the line numbers
-		int LineNumber = 0;
     	
     	// DFS on the Dominance tree
 		//Block curBlock = domTree.get(0).node;
 		Block curBlock = BlockChain.get(0);
+		
 		while (curBlock != null) {
-
+			
 			// Generate Phi
 			 if (curBlock.predecessors.size() >= 2) { //The blocks combine here, we need PHI
 			 	
-				int PHInum = 1;
+				int PHInum = 0;
 				for (String key : MostRecentlyDefinedVars.keySet()) {
 					
-			 		// Creating a new Phi line for a variable that doesn't already have one
-					
+			 		// First time we entered a Block, we are creating the PHI
 			 		Line PhiLine = new Line();
 			 		curBlock.lines.add(0 + PHInum, PhiLine);
 			 		
 			 		//setting up the initial keys with relative line numbers
 			 		curBlock.phiMap.put(key, PHInum++);
-			 		
 			 		LineNumber++;
-
+			 		
 			 		// Elements to add to the line itself
 			 		PhiLine.operator = "PHI";
 
@@ -443,64 +476,45 @@ public class Compiler
 			 		Result oldVar = new Result();
 			 		PhiLine.UsedVars.add(oldVar);
 			 		oldVar.varName = key + "_" + Integer.toString(MostRecentlyDefinedVars.get(key));
-
 			 		
+			 		MostRecentlyDefinedVars.put(key, LineNumber);
 			 	}
+				// fix the line numbers for the rest of the data
+				LineNumber -= PHInum;
+				
 			}
 
 			// Check used variables and enter the most recently assigned var
 			for(int j=0; j<curBlock.lines.size(); j++) {
-
-				LineNumber++; // fixes the current Line number
-
+		 		
 				Line curLine = curBlock.lines.get(j);
+				curLine.lineNumber = LineNumber++;
+
 				// Assignments (fix the MostRecentlyDefinedVars by adding line numbers)
 				if (curLine.operator == "MOVE") {
 					if (curLine.SetVar != null) {
-
-						if (constantPropSwitch) // CONSTANT PROPAGATION
-						{
-							// CONSTANT PROPAGATION:
-							// - If we see a value, remove that line and add its value/name pairing to a map. 
-							// - Later, if we see a variable in that map, use its value. 
-							if (isNumeric(curLine.UsedVars.get(0).varName))
-							{
-								// if the used variable is numeric, and it's a move, it's a static assignment. 
-								// therefore, we can optimize and replace it with the value.
-								//LineNumber--;
-
-								constPropagationMap.put(curLine.SetVar.varName + "_" + Integer.toString(LineNumber), curLine.UsedVars.get(0).value);
-								canBePropagatedMap.put(curLine.SetVar.varName + "_" + Integer.toString(LineNumber), true);
-								//curBlock.lines.remove(curLine);
-								//j--; // go back one since we remove the line and are iterating over the lines.size() 
-								
-								// Now fix up all the lines from that point on. 
-								//updateAllLineNumbersFromLineNumber(LineNumber);
-								//checkForAndRemoveEmptyBlocks();
-							}
+						if (MostRecentlyDefinedVars.containsKey(curLine.SetVar.varName)){
+							//MostRecentlyDefinedVars.replace(curLine.SetVar.varName, LineNumber);
+							//curLine.SetVar.varName += "_" + Integer.toString(LineNumber);
+						}
+						else {
+							//MostRecentlyDefinedVars.put(curLine.SetVar.varName, LineNumber);
+							//curLine.SetVar.varName = curLine.SetVar.varName + "_" + Integer.toString(LineNumber);
 						}
 						
 						MostRecentlyDefinedVars.put(curLine.SetVar.varName, LineNumber);
 						curLine.SetVar.varName = curLine.SetVar.varName + "_" + Integer.toString(LineNumber);
+						if (constantPropSwitch && isNumeric(curLine.UsedVars.get(0).varName))
+						{
+							constPropagationMap.put(curLine.SetVar.varName, curLine.UsedVars.get(0).value);
+							canBePropagatedMap.put(curLine.SetVar.varName, true);
+						}
 					}
 				}
 				
 				for(int k=0; k<curLine.UsedVars.size(); k++) {
 
 					// Check each variable and replace the names of the used vars with the most recently assigned values
-					/*String op = curLine.operator;
-					if (constantPropSwitch && !constPropagationMap.containsKey(curLine.UsedVars.get(0).varName))
-					{
-						// Check if that usedVar name exists in the map with the line number attached.
-						String tempVarName = curLine.UsedVars.get(0).varName;
-						tempVarName += "_" + Integer.toString(curLine.UsedVars.get(0).lineNumber);
-						if (constPropagationMap.containsKey(tempVarName))
-						{
-							curLine.UsedVars.get(0).varName = "propagated:" + tempVarName;//Integer.toString(constPropagationMap.get(tempVarName));
-							//continue;
-						}
-					}
-					else */
 					if (MostRecentlyDefinedVars.containsKey(curLine.UsedVars.get(k).varName)){
 						int lineNum = MostRecentlyDefinedVars.get(curLine.UsedVars.get(k).varName);
 						String varn = curLine.UsedVars.get(k).varName;
@@ -519,6 +533,16 @@ public class Compiler
 					}
 				}
 			}
+			
+			// propagate the variable declaration to children
+			for (int i=0; i<domTree.size(); i++) {
+				if (domTree.get(i).getBlock().BlockNumber == curBlock.BlockNumber) {
+					for (int j=0; j<BlockChain.get(i).childrenIndexes.size(); j++) {
+						FixingPHInodes(BlockChain.get(BlockChain.get(i).childrenIndexes.get(j)));
+					}
+				}
+			}
+
 			// recursion
 			curBlock = getNextBlock(curBlock);
 		}
@@ -1100,10 +1124,25 @@ public class Compiler
 			factor2 = FACTOR();	
 			
 			if (s == "times") {
-				compute(DLX.MUL, factor, factor, factor2);
+				
+				//TODO: This is the constant folding position for multiplication (there are three more)
+				if(factor.kind == "const" && factor2.kind == "const") 
+					factor.value *= factor2.value;
+				
+				// This is the normal function if not constant folding
+				else {
+					compute(DLX.MUL, factor, factor, factor2);
+				}
 			}
 			else {
-				compute(DLX.DIV, factor, factor, factor2);
+				
+				//TODO: Constant folding position (2)
+				if(factor.kind == "const" && factor2.kind == "const") {
+					factor.value /= factor2.value;
+				}
+				else {
+					compute(DLX.DIV, factor, factor, factor2);
+				}
 			}
 			if (factor2.kind == "reg")
 				DeallocateReg(factor2);
@@ -1129,10 +1168,24 @@ public class Compiler
 			term2 = TERM();
 			
 			if (s == "plus") {
-				compute(DLX.ADD, term, term, term2);
+				
+				//TODO: Constant folding position (3)
+				if(term.kind == "const" && term2.kind == "const") {
+					term.value += term2.value;
+				}
+				else {
+					compute(DLX.ADD, term, term, term2);
+				}
 			}
 			else {
-				compute(DLX.SUB, term, term, term2);	
+				
+				//TODO: Constant folding position (4)
+				if(term.kind == "const" && term2.kind == "const") {
+					term.value -= term2.value;
+				}
+				else {
+					compute(DLX.SUB, term, term, term2);
+				}
 			}
 			if (term2.kind == "reg")
 				DeallocateReg(term2);
@@ -1143,8 +1196,9 @@ public class Compiler
 	}
 	
 	private Result RELATION() {
+		
 		checkForAndRemoveEmptyBlocks();
-
+		
 		//Block previousBlock = BlockChain.get(BlockChain.size() - 1);
 		//ChildlessParents.add(previousBlock.BlockNumber);
 
@@ -1620,6 +1674,7 @@ public class Compiler
 	}
 	
 	private void STATSEQUENCE() {
+		
 		//Holds current token name
 		Block CurBlock = new Block();
 		CurBlock.BlockNumber = BlockChain.size();
