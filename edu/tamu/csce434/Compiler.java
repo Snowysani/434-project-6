@@ -76,6 +76,8 @@ public class Compiler
 	
 	private Vector<String> preDefIdents = new Vector<String>();
 	
+	Boolean constantPropSwitch = true;
+	private HashMap<String, Integer> constPropagationMap = new HashMap<>();
 	
 	// Writing Line Data to the output file
 	private int instructionNumber = 1;
@@ -325,6 +327,22 @@ public class Compiler
 				// Assignments (fix the MostRecentlyDefinedVars by adding line numbers)
 				if (curLine.operator == "MOVE") {
 					if (curLine.SetVar != null) {
+						
+						if (constantPropSwitch) // CONSTANT PROPAGATION
+						{
+							// CONSTANT PROPAGATION:
+							// - If we see a value, remove that line and add its value/name pairing to a map. 
+							// - Later, if we see a variable in that map, use its value. 
+							if (isNumeric(curLine.UsedVars.get(0).varName))
+							{
+								// if the used variable is numeric, and it's a move, it's a static assignment. 
+								// therefore, we can optimize and replace it with the value. 
+								constPropagationMap.put(curLine.SetVar.varName, curLine.UsedVars.get(0).value);
+								curBlock.lines.remove(curLine);
+								LineNumber--;
+							}
+						}
+						
 						if (MostRecentlyDefinedVars.containsKey(curLine.SetVar.varName)){
 							MostRecentlyDefinedVars.replace(curLine.SetVar.varName, LineNumber);
 							curLine.SetVar.varName += "_" + Integer.toString(LineNumber);
@@ -607,7 +625,9 @@ public class Compiler
 		if(x.kind == "reg") {
 			AllocateReg(x);
 			if(x.scope == functionName && x.scope != "main")
+			{
 				buf[PC++] = DLX.assemble(DLX.LDW, x.regnum, FP, x.address);
+			}
 			else
 				buf[PC++] = DLX.assemble(DLX.LDW, x.regnum, DP, x.address);
 		}
@@ -619,6 +639,7 @@ public class Compiler
 			else {
 				AllocateReg(x);
 				buf[PC++] = DLX.assemble(DLX.ADDI, x.regnum, 0, x.value);
+				// propagate this up potentially?
 			}
 		}
 		return x;
@@ -819,6 +840,7 @@ public class Compiler
 		// do this is the ident returns a variable
 		if(!peek("openbracket")) {
 			Load(newLocation);
+			// CONSTANT FOLDING HERE PERHAPS?
 			return newLocation;
 		}
 		
@@ -1783,6 +1805,19 @@ public class Compiler
 		}
 		
 		expect("end");
+	}
+
+	public static boolean isNumeric(String strNum) { // https://www.baeldung.com/java-check-string-number
+		// this function checks if a string is numerical. 
+		if (strNum == null) {
+			return false;
+		}
+		try {
+			double d = Double.parseDouble(strNum);
+		} catch (NumberFormatException nfe) {
+			return false;
+		}
+		return true;
 	}
 	
 	
