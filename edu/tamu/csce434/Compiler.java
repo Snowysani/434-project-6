@@ -54,6 +54,10 @@ public class Compiler
 				if (l.SetVar.lineNumber >= ln)
 				{
 					l.SetVar.lineNumber -= 1;
+					for (Result used : l.UsedVars)
+					{
+						//used.lineNumber -= 1;
+					}
 				}
 				if (l.UsedVars.get(0).varName.charAt(0) == '(')
 				{
@@ -348,7 +352,6 @@ public class Compiler
 				LineNumber++; // fixes the current Line number
 
 				Line curLine = curBlock.lines.get(j);
-
 				// Assignments (fix the MostRecentlyDefinedVars by adding line numbers)
 				if (curLine.operator == "MOVE") {
 					if (curLine.SetVar != null) {
@@ -366,21 +369,12 @@ public class Compiler
 
 								constPropagationMap.put(curLine.SetVar.varName + "_" + Integer.toString(LineNumber), curLine.UsedVars.get(0).value);
 								curBlock.lines.remove(curLine);
+								j--; // go back one since we remove the line and are iterating over the lines.size() 
 								
 								// Now fix up all the lines from that point on. 
 								updateAllLineNumbersFromLineNumber(LineNumber);
 							}
 						}
-						
-						// I think this conditional is repeated logic. "Put" overwrites anyways. Commenting out for now. 
-						// if (MostRecentlyDefinedVars.containsKey(curLine.SetVar.varName)){
-						// 	MostRecentlyDefinedVars.replace(curLine.SetVar.varName, LineNumber);
-						// 	curLine.SetVar.varName += "_" + Integer.toString(LineNumber);
-						// }
-						// else {
-						// 	MostRecentlyDefinedVars.put(curLine.SetVar.varName, LineNumber);
-						// 	curLine.SetVar.varName =curLine.SetVar.varName + "_" + Integer.toString(LineNumber);
-						// }
 						
 						MostRecentlyDefinedVars.put(curLine.SetVar.varName, LineNumber);
 						curLine.SetVar.varName = curLine.SetVar.varName + "_" + Integer.toString(LineNumber);
@@ -391,7 +385,18 @@ public class Compiler
 
 					// Check each variable and replace the names of the used vars with the most recently assigned values
 					String op = curLine.operator;
-					if (MostRecentlyDefinedVars.containsKey(curLine.UsedVars.get(k).varName)){
+					if (constantPropSwitch && !constPropagationMap.containsKey(curLine.UsedVars.get(0).varName))
+					{
+						// Check if that usedVar name exists in the map with the line number attached.
+						String tempVarName = curLine.UsedVars.get(0).varName;
+						tempVarName += "_" + Integer.toString(curLine.UsedVars.get(0).lineNumber - 1);
+						if (constPropagationMap.containsKey(tempVarName))
+						{
+							curLine.UsedVars.get(0).varName = Integer.toString(constPropagationMap.get(tempVarName));
+							//continue;
+						}
+					}
+					else if (MostRecentlyDefinedVars.containsKey(curLine.UsedVars.get(k).varName)){
 						int lineNum = MostRecentlyDefinedVars.get(curLine.UsedVars.get(k).varName);
 						String varn = curLine.UsedVars.get(k).varName;
 						curLine.UsedVars.get(k).varName = curLine.UsedVars.get(k).varName + "_" + Integer.toString(lineNum);
