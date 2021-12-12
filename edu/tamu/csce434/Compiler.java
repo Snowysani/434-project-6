@@ -106,6 +106,7 @@ public class Compiler
 	private Vector<String> preDefIdents = new Vector<String>();
 	
 	Boolean constantPropSwitch = true;
+	Boolean constantFoldingSwitch = true;
 	private HashMap<String, Integer> constPropagationMap = new HashMap<>();
 	private HashMap<String, Boolean> canBePropagatedMap = new HashMap<>();
 	
@@ -1070,8 +1071,8 @@ public class Compiler
 			
 			if (s == "times") {
 				
-				//TODO: This is the constant folding position for multiplication (there are three more)
-				if(factor.kind == "const" && factor2.kind == "const") 
+				// CONSTANT FOLDING
+				if(constantFoldingSwitch && factor.kind == "const" && factor2.kind == "const") 
 					factor.value *= factor2.value;
 				
 				// This is the normal function if not constant folding
@@ -1081,8 +1082,8 @@ public class Compiler
 			}
 			else {
 				
-				//TODO: Constant folding position (2)
-				if(factor.kind == "const" && factor2.kind == "const") {
+				// CONSTANT FOLDING (2)
+				if(constantFoldingSwitch && factor.kind == "const" && factor2.kind == "const") {
 					factor.value /= factor2.value;
 				}
 				else {
@@ -1114,8 +1115,8 @@ public class Compiler
 			
 			if (s == "plus") {
 				
-				//TODO: Constant folding position (3)
-				if(term.kind == "const" && term2.kind == "const") {
+				// CONSTANT FOLDING (3) 
+				if(constantFoldingSwitch && term.kind == "const" && term2.kind == "const") {
 					term.value += term2.value;
 				}
 				else {
@@ -1124,8 +1125,8 @@ public class Compiler
 			}
 			else {
 				
-				//TODO: Constant folding position (4)
-				if(term.kind == "const" && term2.kind == "const") {
+				// Constant Folding (4)
+				if(constantFoldingSwitch && term.kind == "const" && term2.kind == "const") {
 					term.value -= term2.value;
 				}
 				else {
