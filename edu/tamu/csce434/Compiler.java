@@ -105,7 +105,7 @@ public class Compiler
 	
 	private Vector<String> preDefIdents = new Vector<String>();
 	
-	Boolean constantPropSwitch = false;
+	Boolean constantPropSwitch = true;
 	private HashMap<String, Integer> constPropagationMap = new HashMap<>();
 	private HashMap<String, Boolean> canBePropagatedMap = new HashMap<>();
 	
@@ -270,18 +270,60 @@ public class Compiler
 		return null;
 	}
 
+	private void removeAndUpdateLinesAfterLineNumber(int linenum)
+	{
+		int lineCounter = 0;
+		for (Block b : BlockChain)
+		{
+			for (Line l : b.lines)
+			{
+				lineCounter++;
+				if (lineCounter > linenum)
+				{
+					l.SetVar.lineNumber -= 1;
+					for (Result r : l.UsedVars)
+					{
+						if (r.varName.charAt(r.varName.length() - 1) == ')')
+						{
+							// then we know it's a temporary. 
+							// first strip it of the non-numerics (the parentheses)
+							String tempName = r.varName.replaceAll("[^0-9]", "");
+							int lineNum = Integer.parseInt(tempName);
+							r.varName = "(" + Integer.toString(lineNum - 1) + ")";
+						}
+					}
+				}
+			}
+		}
+	}
 	private void propagateOverBlockchain()
 	{
+		int lineCount = 0;
 		for (Block b : BlockChain) // for each block
 		{
-			for (Line l : b.lines) // for each line 
+			
+			for (int i = 0; i < b.lines.size(); i++) // for each line 
 			{
+				lineCount++;
+				Line l = b.lines.get(i);
+				if (l.operator.equals("MOVE") && canBePropagatedMap.containsKey(l.SetVar.varName) && canBePropagatedMap.get(l.SetVar.varName))
+				{
+					// if it's a move, remove the line.
+					b.lines.remove(l);
+					lineCount--;
+					i--;
+					removeAndUpdateLinesAfterLineNumber(lineCount);
+					//continue;
+				}
 				for (Result r : l.UsedVars) // for the used vars
 				{
 					if (canBePropagatedMap.containsKey(r.varName) && canBePropagatedMap.get(r.varName))
 					{
 						// If we can propagate that var, do so every time its used. 
 						r.varName = Integer.toString(constPropagationMap.get(r.varName));
+						
+						//b.lines.remove(l);
+						//removeAndUpdateLinesAfterLineNumber(lineCount);
 					}
 				}
 			}
