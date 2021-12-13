@@ -39,7 +39,9 @@ public class TestCompiler {
         
         RegisterData GraphColoring = new RegisterData();
         
-        GraphColoring.CreateTestCase();
+        /* Toggling the Graph Coloring Cases */
+        // GraphColoring.CreateTestCase_NoSpill();
+        GraphColoring.CreateTestCase_Spill();
 		
 		// Running algorithm to set colors to the nodes
         GraphColoring.ColoringNodes();
@@ -57,3 +59,4 @@ public class TestCompiler {
     }
 
 }
+

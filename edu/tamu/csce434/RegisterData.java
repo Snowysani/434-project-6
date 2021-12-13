@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.FileOutputStream;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Stack;
 import java.util.Vector;
@@ -15,17 +16,10 @@ class EdgeType {
 	String node2;
 }
 
-class NodeType {
-	
-	public NodeType() {	}
-	String node;
-	String color;
-}
-
 public class RegisterData 
 {
 	
-	public void CreateTestCase() {
+	public void CreateTestCase_NoSpill() {
 		//Test Case
 		NodeType node1 = new NodeType();
 		node1.node = "a";
@@ -89,6 +83,114 @@ public class RegisterData
 		Edges.add(edge7);
 	}
 	
+	public void CreateTestCase_Spill() {
+		//Test Case
+		NodeType node1 = new NodeType();
+		node1.node = "a";
+		
+		NodeType node2 = new NodeType();
+		node2.node = "b";
+		
+		NodeType node3 = new NodeType();
+		node3.node = "c";
+		
+		NodeType node4 = new NodeType();
+		node4.node = "x";
+		
+		NodeType node5 = new NodeType();
+		node5.node = "y";
+		
+		NodeType node6 = new NodeType();
+		node6.node = "z";
+		
+		NodeType node7 = new NodeType();
+		node7.node = "p";
+		
+		Nodes.add(node1);
+		Nodes.add(node2);
+		Nodes.add(node3);
+		Nodes.add(node4);
+		Nodes.add(node5);
+		Nodes.add(node6);
+		Nodes.add(node7);
+		
+		EdgeType edge1 = new EdgeType();
+		edge1.node1 = "a";
+		edge1.node2 = "b";
+		
+		EdgeType edge2 = new EdgeType();
+		edge2.node1 = "b";
+		edge2.node2 = "c";
+		
+		EdgeType edge3 = new EdgeType();
+		edge3.node1 = "a";
+		edge3.node2 = "c";
+		
+		EdgeType edge4 = new EdgeType();
+		edge4.node1 = "a";
+		edge4.node2 = "x";
+		
+		EdgeType edge5 = new EdgeType();
+		edge5.node1 = "a";
+		edge5.node2 = "y";
+		
+		EdgeType edge6 = new EdgeType();
+		edge6.node1 = "x";
+		edge6.node2 = "b";
+		
+		EdgeType edge7 = new EdgeType();
+		edge7.node1 = "y";
+		edge7.node2 = "b";
+		
+		EdgeType edge8 = new EdgeType();
+		edge8.node1 = "c";
+		edge8.node2 = "x";
+		
+		EdgeType edge9 = new EdgeType();
+		edge9.node1 = "c";
+		edge9.node2 = "y";
+		
+		EdgeType edge10 = new EdgeType();
+		edge10.node1 = "x";
+		edge10.node2 = "y";
+		
+		EdgeType edge11 = new EdgeType();
+		edge11.node1 = "a";
+		edge11.node2 = "z";
+		
+		EdgeType edge12 = new EdgeType();
+		edge12.node1 = "y";
+		edge12.node2 = "z";
+		
+		EdgeType edge13 = new EdgeType();
+		edge13.node1 = "b";
+		edge13.node2 = "z";
+		
+		EdgeType edge14 = new EdgeType();
+		edge14.node1 = "x";
+		edge14.node2 = "z";
+		
+		EdgeType edge15 = new EdgeType();
+		edge15.node1 = "c";
+		edge15.node2 = "z";
+		
+		Edges.add(edge1);
+		Edges.add(edge2);
+		Edges.add(edge3);
+		Edges.add(edge4);
+		Edges.add(edge5);
+		Edges.add(edge6);
+		Edges.add(edge7);
+		Edges.add(edge8);
+		Edges.add(edge9);
+		Edges.add(edge10);
+		Edges.add(edge11);
+		Edges.add(edge12);
+		Edges.add(edge13);
+		Edges.add(edge14);
+		Edges.add(edge15);
+	}
+	
 	
 	private static int NUMREGISTERS = 5;
 	
@@ -96,6 +198,7 @@ public class RegisterData
 	private class NodeType {
 		String node;
 		String color;
+		Integer registerNumber;
 	}
 	private static ArrayList<NodeType> Nodes = new ArrayList<NodeType>();
 	
@@ -125,8 +228,7 @@ public class RegisterData
 			}
 		}
 		return tempEdges;
-	}
-		
+	}	
 
 	// For this project, there is no randomness, this will help with debugging by keeping the output static
 	// Since this problem is NP-complete, the best we can do is try this program many times
@@ -145,14 +247,14 @@ public class RegisterData
 			
 			// There are no nodes with less than k edges (SPILL)
 			if (indexCounter >= tempNodes.size()) {
-				tempEdges = RemoveEdges(tempNodes, tempEdges, indexCounter);
-				Stack.add(tempNodes.get(indexCounter).node);
-				tempNodes.remove(indexCounter);
+				tempEdges = RemoveEdges(tempNodes, tempEdges, 0);
+				Stack.add(tempNodes.get(0).node);
+				tempNodes.remove(0);
 				indexCounter = 0;
 			}
 			
 			// If the node has less edges than the number of registers
-			if (countNumEdges(tempNodes.get(indexCounter).node) < NUMREGISTERS) {
+			else if (countNumEdges(tempNodes.get(indexCounter).node) < NUMREGISTERS) {
 				tempEdges = RemoveEdges(tempNodes, tempEdges, indexCounter);
 				Stack.add(tempNodes.get(indexCounter).node);
 				tempNodes.remove(indexCounter);
@@ -165,12 +267,21 @@ public class RegisterData
 			}
 		}
 		
-		
 		ArrayList<String> replacedNodes = new ArrayList<String>();
+		ArrayList<Integer> registerColor = new ArrayList<Integer>();
+		
 		int count;
 		
 		for (int i=Stack.size()-1; i>=0; i--) 
 		{
+			
+			// Holds the nearby register values
+			HashMap<Integer, Boolean> colors = new HashMap<Integer, Boolean>();
+			for(int j=0; j<NUMREGISTERS; j++) {
+				// this defines all registers as open
+				colors.put(j, true);
+			}
+				
 			count = 1;
 			for (int j=0; j<Edges.size(); j++) 
 			{		
@@ -181,35 +292,67 @@ public class RegisterData
 					// Counting the number of edges in a replaced node
 					if (Edges.get(j).node1 == replacedNodes.get(k) || Edges.get(j).node1 == Stack.get(i)) {
 						if(Edges.get(j).node2 == replacedNodes.get(k) || Edges.get(j).node2 == Stack.get(i)) {
-							count++;
+							
+							// define the register as closed (already being used)
+							colors.put(registerColor.get(k), false);
+							System.out.print(registerColor.get(k) + " ");
 						}
 					}
 				}
 			}
+			System.out.print("\n");
 			
-			// coloring registers
-			if (count <= NUMREGISTERS) {
-				if (count == 1) {
-					Nodes.get(i).color = "grey";
+			System.out.print(colors  + " " + Stack.get(i)+ "\n");
+
+			int index = -1;
+			for (int j=0; j<Nodes.size(); j++) {
+				if(Nodes.get(j).node == Stack.get(i)) {
+					index = j;
+					break;
 				}
-				else if (count == 2) {
-					Nodes.get(i).color = "blue";
-				}
-				else if (count == 3) {
-					Nodes.get(i).color = "green";
-				}
-				else if (count == 4) {
-					Nodes.get(i).color = "yellow";
-				}
-				else if (count == 5) {
-					Nodes.get(i).color = "orange";
-				}
-				
-				// Only add if not spilled
-				replacedNodes.add(Nodes.get(i).node);
+			}
+			
+			
+			if (colors.get(0)) 
+			{
+				Nodes.get(index).color = "grey";
+				registerColor.add(0);
+				replacedNodes.add(Stack.get(i));
+			}
+			else if (colors.get(1)) 
+			{
+				Nodes.get(index).color = "blue";
+				registerColor.add(1);
+				replacedNodes.add(Stack.get(i));
+			}
+			else if (colors.get(2)) 
+			{
+				Nodes.get(index).color = "green";
+				registerColor.add(2);
+				replacedNodes.add(Stack.get(i));
+			}
+			else if (colors.get(3)) 
+			{
+				Nodes.get(index).color = "yellow";
+				registerColor.add(3);
+				replacedNodes.add(Stack.get(i));
+			}
+			else if (colors.get(4)) 
+			{
+				Nodes.get(index).color = "orange";
+				registerColor.add(4);
+				replacedNodes.add(Stack.get(i));
 			}
 			else {
-				Nodes.get(i).color = "red";
+				Nodes.get(index).color = "red";
+				
+				// remove edges that connect to that node from final graph
+				for (int j=0; j<Edges.size(); j++) {
+					if (Edges.get(j).node1 == Nodes.get(index).node || Edges.get(j).node2 == Nodes.get(index).node) {
+						Edges.remove(j);
+						j--;
+					}
+				}
 			}
 		}
 	}
@@ -239,10 +382,14 @@ public class RegisterData
 				//Edges.get(i).node1 -- Edges.get(i).node2;
 				//Create an edge between nodes
 				Output.write("  ".getBytes());
-				Output.write(Edges.get(i).node1.getBytes());
-				Output.write("--".getBytes());
-				Output.write(Edges.get(i).node2.getBytes());
-				Output.write(";\n".getBytes());
+				
+				if (Edges.get(i).node1 != null && Edges.get(i).node2 != null) {
+					
+					Output.write(Edges.get(i).node1.getBytes());
+					Output.write("--".getBytes());
+					Output.write(Edges.get(i).node2.getBytes());
+					Output.write(";\n".getBytes());
+				}
 			}
 			
 			Output.write('\n');
@@ -253,4 +400,5 @@ public class RegisterData
 			System.out.print(e.getLocalizedMessage());
 		}
 	}
+	
 }
