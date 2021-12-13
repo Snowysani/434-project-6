@@ -295,14 +295,10 @@ public class RegisterData
 							
 							// define the register as closed (already being used)
 							colors.put(registerColor.get(k), false);
-							System.out.print(registerColor.get(k) + " ");
 						}
 					}
 				}
 			}
-			System.out.print("\n");
-			
-			System.out.print(colors  + " " + Stack.get(i)+ "\n");
 
 			int index = -1;
 			for (int j=0; j<Nodes.size(); j++) {
