@@ -6,6 +6,13 @@
     "configurations": [
         {
             "type": "java",
+            "name": "Launch TestCompiler",
+            "request": "launch",
+            "mainClass": "edu.tamu.csce434.TestCompiler",
+            "projectName": "434-project-6_2f3d318d"
+        },
+        {
+            "type": "java",
             "name": "Launch with Arguments Prompt",
             "request": "launch",
             "mainClass": "",

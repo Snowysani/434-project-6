@@ -16,7 +16,7 @@ public class TestCompiler {
                         newIn = new BufferedInputStream(
                                 new FileInputStream(args[1]));
             System.setIn(newIn);
-
+        
             Compiler c = new Compiler(args[0]);
             int prog[] = c.getProgram();
             if (prog == null) {
@@ -31,6 +31,30 @@ public class TestCompiler {
             newIn.close();
         } catch (IOException e) {
             System.out.println("Error reading input files");
+        }
+        
+        
+        
+        // Coloring Graph data
+        
+        RegisterData GraphColoring = new RegisterData();
+        
+        /* Toggling the Graph Coloring Cases */
+        // GraphColoring.CreateTestCase_NoSpill();
+        GraphColoring.CreateTestCase_Spill();
+		
+		// Running algorithm to set colors to the nodes
+        GraphColoring.ColoringNodes();
+		
+		// Printing the graph into a DOT file
+		try {
+        	File file = new File("RegisterAllocation.txt");
+        	FileOutputStream OutputFile = new FileOutputStream(file);
+        	
+        	GraphColoring.PrintingInteferenceGraph(OutputFile); 
+        }
+        catch (Exception e){
+        	System.out.print(e.getLocalizedMessage());
         }
     }
 
