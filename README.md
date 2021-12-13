@@ -1,6 +1,11 @@
 # 434-project-6
 Repository for our CSCE 434 Project 6 assignment.
 
+# Running Instructions
+We utilized our native IDEs to run and test this code's output. It generates BlockDiagram.txt, which can be fed to a graph visualization tool with the Dot language.
+This code is run like the previous projects, with command line input of "test.txt" and "test.in". We included some tests in the tests folder.
+
+
 # Assignment 6 PDF Contents:
 So far the compiler does not have any optimizations. This is an advanced assignment to implement some
 optimizations discussed.
