@@ -1,5 +1,4 @@
-# 434-project-6
-Repository for our CSCE 434 Project 6 assignment.
+# Compiler Project
 This project was made with lots of love and effort. We went to Fuego at midnight after grinding one evening, it was a great time.
 This was by far one of the most interesting and educational classes I have taken in my college career. I feel like I have learned more about compilers than many other concepts, and this project was a good learning experience.
 
